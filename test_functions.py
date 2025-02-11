@@ -20,7 +20,7 @@ from IT8951 import constants
 import time
 from time import sleep
 import datetime
-from sys import path
+import sys
 import subprocess
 import asyncio
 import websockets
@@ -103,55 +103,100 @@ async def test(msg):
         response = await websocket.recv()
         print(response)
 
-def calculate_resize_dimensions(image, max_width, max_height):
-            """
-            Calculate new dimensions that maintain aspect ratio and fit within max bounds.
-            Returns (new_width, new_height)
-            """
-            # Get current aspect ratio
-            aspect_ratio = image.width / image.height
-            
-            # Try scaling by width first
-            new_width = max_width
-            new_height = int(new_width / aspect_ratio)
-            
-            # If too tall, scale by height instead
-            if new_height > max_height:
-                new_height = max_height
-                new_width = int(new_height * aspect_ratio)
-            
-            return new_width, new_height
+def calculate_resize_dimensions(image, max_width, max_height, scale=1.0):
+    """
+    Calculate new dimensions that maintain aspect ratio and fit within max bounds.
+    Returns (new_width, new_height)
+    """
+    # Get current aspect ratio
+    aspect_ratio = image.width / image.height
     
-async def display_image_8bpp(websocket,display,msg):
+    # Apply scale factor to max dimensions
+    scaled_max_width = int(max_width * scale)
+    scaled_max_height = int(max_height * scale)
+
+    # Try scaling by width first
+    new_width = scaled_max_width
+    new_height = int(new_width / aspect_ratio)
+
+    # If too tall, scale by height instead
+    if new_height > scaled_max_height:
+        new_height = scaled_max_height
+        new_width = int(new_height * aspect_ratio)
+
+    print(f"Scaling image: original size={image.width}x{image.height}, "
+          f"new size={new_width}x{new_height} (scale={scale:.2f})")
+
+    return new_width, new_height
+
+async def display_image_8bpp(websocket, display, msg, project_root=None):
     print("_________________________________________")
 
     display_barcode = True
 
+    # Use provided project_root or fall back to current directory
+    if project_root is None:
+        project_root = os.getcwd()
+
+    print(f"Using project root: {project_root}")
+
+    # Get scale factor from transformations
+    scale = msg.get('transformations', {}).get('scale', 1.0)
+    print(f"Using scale factor: {scale:.2f}")
 
     # Determine the folder directory based on test type and barcode type
     if msg['pre-test'] == 'yes':
         # Set directory for pre-test
-        folder_dir = path[0] + "/pre_test/"
-        print("Pre-test directory selected", folder_dir)
+        folder_dir = os.path.join(project_root, "pre_test")
+        print("Pre-test directory selected:", folder_dir)
 
-    elif msg['known_barcode'] == 'yes':
+    elif msg.get('known_barcode') == 'yes':
         # Set directory for known_barcode
-        folder_dir = path[0] + "/known_barcode/"
-        print("Known barcode directory selected", folder_dir)
+        folder_dir = os.path.join(project_root, "known_barcode")
+        print("Known barcode directory selected:", folder_dir)
 
     else:
         # If not a pre-test or known barcode, use the barcode type
         barcode_type = msg.get('barcode-type', 'unknown')
-        folder_dir = path[0] + '/' + barcode_type + '/'
+        folder_dir = os.path.join(project_root, barcode_type)
         print(f"Regular test directory selected for barcode type: {barcode_type}", folder_dir)
 
-    for image in os.listdir(folder_dir):
+    # Verify the directory exists
+    if not os.path.exists(folder_dir):
+        error_msg = f"Error: Directory not found: {folder_dir}"
+        print(error_msg)
+        await websocket.send(bytes(error_msg, 'utf-8'))
+        return
+
+    # List all image files in the directory
+    image_files = [f for f in os.listdir(folder_dir)
+                  if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+
+    if not image_files:
+        error_msg = f"No image files found in directory: {folder_dir}"
+        print(error_msg)
+        await websocket.send(bytes(error_msg, 'utf-8'))
+        return
+
+    print(f"Found {len(image_files)} image files")
+
+    for image in image_files:
         display.frame_buf.paste(0xFF, box=(0, 0, display.width, display.height))
-        # image adjusment
-        img = Image.open(folder_dir + image)
+        # image adjustment
+        img_path = os.path.join(folder_dir, image)
+        try:
+            img = Image.open(img_path)
+        except Exception as e:
+            print(f"Error opening image {img_path}: {str(e)}")
+            continue
         
         # Calculate dimensions that maintain aspect ratio and fit display
-        new_width, new_height = calculate_resize_dimensions(img, display.width//2, display.height)
+        new_width, new_height = calculate_resize_dimensions(
+            img,
+            display.width//2,
+            display.height,
+            scale=scale
+        )
         # Resize maintaining aspect ratio
         img = img.resize((new_width, new_height))
 
@@ -185,5 +230,3 @@ async def display_image_8bpp(websocket,display,msg):
             display_barcode = True
 
     await websocket.send(bytes('done','utf-8'))
-    
-
