@@ -23,9 +23,9 @@ def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(description='Barcode Test Application')
 
-    # Rotation argument (0, 90, 180, 270 degrees)
+    # Rotation argument (any angle)
     parser.add_argument('-r', '--rotation', type=float, default=0.0,
-                      help='Image rotation in degrees (preferably 0, 90, 180, or 270 for best results)')
+                      help='Image rotation in degrees (any angle)')
 
     # Scale argument (0.1 to 2.0)
     parser.add_argument('-s', '--scale', type=float, default=1.0,
@@ -45,12 +45,8 @@ def parse_args():
     if not 0.1 <= args.scale <= 2.0:
         parser.error("Scale must be between 0.1 and 2.0")
 
-    # Normalize rotation to closest 90-degree increment
+    # Normalize rotation to 0-360 range
     args.rotation = args.rotation % 360.0
-    if args.rotation not in [0, 90, 180, 270]:
-        print(f"Warning: Rotation {args.rotation:.1f}° will be approximated to nearest 90° increment")
-        args.rotation = round(args.rotation / 90) * 90 % 360
-        print(f"Using rotation: {args.rotation:.1f}°")
 
     return args
 
@@ -73,9 +69,6 @@ async def websocket_handler(websocket, args):
                 }
                 # Pass the PROJECT_ROOT to the testing function
                 await testing(websocket, json_data, project_root=PROJECT_ROOT)
-            elif 'Presigned URL' in json_data:
-                url = json_data.get('Presigned URL')
-                await download_and_unzip_s3_file(websocket, url, extract_to='testing-barcode')
             else:
                 await websocket.send("Unknown command or data format")
         else:
@@ -138,7 +131,7 @@ async def main():
         print(f"  - {dir_path} {'(exists)' if os.path.exists(dir_path) else '(missing)'}")
 
     print("\nConfiguration:")
-    print(f"  Rotation: {args.rotation:.1f} degrees")
+    print(f"  Rotation: {args.rotation:.1f}° (using PIL rotation)")
     print(f"  Scale: {args.scale:.2f}x")
     print(f"  Mirror: {'Yes' if args.mirror else 'No'}")
     print(f"  Barcode Type: {args.barcode_type}")

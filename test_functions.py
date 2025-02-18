@@ -17,6 +17,7 @@ import os
 from os import listdir
 from PIL import Image, ImageDraw, ImageFont
 from IT8951 import constants
+from IT8951.img_transform import prepare_image_for_display
 import time
 from time import sleep
 import datetime
@@ -140,9 +141,11 @@ async def display_image_8bpp(websocket, display, msg, project_root=None):
 
     print(f"Using project root: {project_root}")
 
-    # Get scale factor from transformations
-    scale = msg.get('transformations', {}).get('scale', 1.0)
-    print(f"Using scale factor: {scale:.2f}")
+    # Get transformation parameters
+    transformations = msg.get('transformations', {})
+    rotation = transformations.get('rotation', 0.0)
+    scale = transformations.get('scale', 1.0)
+    print(f"Using rotation: {rotation:.1f}°, scale: {scale:.2f}")
 
     # Determine the folder directory based on test type and barcode type
     if msg['pre-test'] == 'yes':
@@ -197,18 +200,27 @@ async def display_image_8bpp(websocket, display, msg, project_root=None):
             display.height,
             scale=scale
         )
+
         # Resize maintaining aspect ratio
         img = img.resize((new_width, new_height))
 
+        # Apply transformations (rotation and any other processing)
+        transformed_img = prepare_image_for_display(
+            img,
+            angle=rotation,
+            scale=1.0,  # Scale already applied
+            background=0xFF  # White background for e-ink
+        )
+
         # centering image
-        x = (display.width - img.width) // 2
-        y = (display.height - img.height) // 2
+        x = (display.width - transformed_img.width) // 2
+        y = (display.height - transformed_img.height) // 2
 
         if not display_barcode:
             continue
 
         # display image
-        display.frame_buf.paste(img, (x, y))
+        display.frame_buf.paste(transformed_img, (x, y))
         display.draw_full(constants.DisplayModes.GC16)
 
         # send barcode back to carbon
