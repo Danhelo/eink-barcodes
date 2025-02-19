@@ -14,7 +14,7 @@ from IT8951.img_transform import prepare_image_for_display
 def init_display():
     """Initialize the e-ink display with optimal settings for animation"""
     print('Initializing display...')
-    display = AutoEPDDisplay(vcom=-2.02, spi_hz=24000000)  # Max SPI speed
+    display = AutoEPDDisplay(vcom=-2.02, spi_hz=80000000)  # Max SPI speed (edit under risk, I found 80Mz is actual max)
     print('VCOM set to', display.epd.get_vcom())
     return display
 
@@ -44,7 +44,7 @@ def optimize_barcode_size(image, display, scale_factor=0.3):
     # Resize the image
     return image.resize((target_width, target_height), Image.BICUBIC)
 
-def run_animation(display, image, total_frames=360, frame_delay=0.1):
+def run_animation(display, image, total_frames=360, frame_delay=0.01):
     """Run the spinning animation"""
     print("\nStarting barcode spin animation!")
     print("Press Ctrl+C to stop\n")
