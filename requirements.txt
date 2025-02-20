@@ -1,0 +1,10 @@
+# Core dependencies
+Pillow==10.2.0  # Image processing
+websockets==12.0  # WebSocket client/server
+
+# Development dependencies
+pytest==8.0.0  # Testing
+black==24.1.1  # Code formatting
+mypy==1.8.0  # Type checking
+
+# Note: PyQt5 is installed via system packages (apt)
