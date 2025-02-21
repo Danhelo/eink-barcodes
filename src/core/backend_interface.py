@@ -11,34 +11,109 @@ from typing import Dict, Any, Optional
 import sys
 import signal
 import logging
+import socket
+import time
+import weakref
 
 logger = logging.getLogger(__name__)
 
 class BackendInterface:
+    # Class variable to track the active server instance
+    _active_instance = None
+
     def __init__(self, host: str = "localhost", port: int = 5440):
         self.host = host
         self.port = port
         self.server = None
         self.client_task = None
         self.loop = None
+        self.active_connections = set()
         self.project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+        # Register this instance
+        if BackendInterface._active_instance is not None:
+            # Close the previous instance
+            prev_instance = BackendInterface._active_instance()
+            if prev_instance is not None:
+                logger.info("Closing previous backend instance")
+                if prev_instance.loop and not prev_instance.loop.is_closed():
+                    try:
+                        prev_instance.loop.run_until_complete(prev_instance.close_server())
+                    except Exception as e:
+                        logger.error(f"Error closing previous instance: {e}")
+
+        # Use weak reference to allow garbage collection
+        BackendInterface._active_instance = weakref.ref(self)
+
+    def _is_port_available(self):
+        """Check if port is available without killing anything"""
+        try:
+            # Try to create a socket
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(1)
+                result = sock.connect_ex(('127.0.0.1', self.port))
+                return result != 0
+        except Exception as e:
+            logger.error(f"Error checking port availability: {e}")
+            return False
 
     async def start_server(self):
         """Start the WebSocket server"""
         try:
+            # Close any existing server first
+            await self.close_server()
+
+            # Wait briefly for cleanup
+            await asyncio.sleep(0.5)
+
+            # Check port availability
+            if not self._is_port_available():
+                logger.warning(f"Port {self.port} is in use, waiting...")
+                for _ in range(10):  # Try for 5 seconds
+                    await asyncio.sleep(0.5)
+                    if self._is_port_available():
+                        break
+                else:
+                    raise RuntimeError(f"Port {self.port} is still in use after waiting")
+
+            # Create new event loop if needed
+            if not self.loop or self.loop.is_closed():
+                self.loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self.loop)
+
             self.server = await websockets.serve(
-                self.websocket_handler,  # Changed from _websocket_handler
+                self.websocket_handler,
                 self.host,
                 self.port
             )
             logger.info(f"WebSocket server running on {self.host}:{self.port}")
+
         except Exception as e:
             logger.error(f"Failed to start server: {e}")
             raise
 
-    async def websocket_handler(self, websocket):  # Removed path parameter
+    async def close_server(self):
+        """Close the WebSocket server if it exists"""
+        if self.server:
+            # Close all active connections
+            for ws in self.active_connections.copy():
+                try:
+                    await ws.close()
+                except Exception as e:
+                    logger.debug(f"Error closing connection: {e}")
+            self.active_connections.clear()
+
+            # Close server
+            self.server.close()
+            await self.server.wait_closed()
+            self.server = None
+            logger.info("WebSocket server closed")
+
+    async def websocket_handler(self, websocket):
         """Handle WebSocket connections"""
+        self.active_connections.add(websocket)
         logger.info(f"New client connected from {websocket.remote_address}")
+
         try:
             data = await websocket.recv()
             json_data = json.loads(data)
@@ -65,113 +140,31 @@ class BackendInterface:
                 "status": "error",
                 "message": str(e)
             }))
-
-    async def send_test_config(self, config: Dict[str, Any]):
-        """Send test configuration to server"""
-        uri = f"ws://{self.host}:{self.port}"
-
-        try:
-            async with websockets.connect(uri) as websocket:
-                logger.info(f"Client connected to {uri}")
-
-                # Ensure config has required fields
-                config.update({
-                    "socket-type": "ws",  # Using WebSocket mode
-                    "command": "Display Barcode"
-                })
-
-                # Send configuration
-                await websocket.send(json.dumps(config))
-                logger.info(f"Sent config: {config}")
-
-                # Wait for responses
-                while True:
-                    try:
-                        response = await websocket.recv()
-                        data = json.loads(response)
-                        logger.info(f"Received response: {data}")
-
-                        if data.get("status") == "progress":
-                            # Emit progress update
-                            progress = data.get("progress", 0)
-                            logger.info(f"Progress: {progress}%")
-                        elif data.get("status") == "complete":
-                            logger.info("Test completed successfully")
-                            return True
-                        elif data.get("status") == "error":
-                            logger.error(f"Test error: {data.get('message')}")
-                            raise RuntimeError(data.get("message"))
-                    except json.JSONDecodeError:
-                        logger.warning(f"Invalid JSON response: {response}")
-
-        except Exception as e:
-            logger.error(f"Client error: {e}")
-            raise
-
-    def run_quick_test(self, barcode_path: str):
-        """Run quick test with default parameters"""
-        config = {
-            "command": "Display Barcode",
-            "Presigned URL": "",
-            "pre-test": "no",
-            "known_barcode": "yes",  # Using known_barcode directory
-            "barcode-type": "code128",
-            "socket-type": "ws",  # Using WebSocket mode
-            "transformations": {
-                "rotation": 0.0,
-                "scale": 1.0,
-                "mirror": False
-            },
-            "barcode_path": barcode_path
-        }
-
-        # Create and run event loop
-        self.loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.loop)
-
-        try:
-            # Start server
-            self.loop.run_until_complete(self.start_server())
-
-            # Send test config
-            self.loop.run_until_complete(self.send_test_config(config))
-
-        except Exception as e:
-            logger.error(f"Error running quick test: {e}")
-            raise
         finally:
-            self.cleanup()
-
-    def run_custom_test(self, config: Dict[str, Any]):
-        """Run custom test with specified parameters"""
-        # Ensure required fields
-        config.update({
-            "command": "Display Barcode",
-            "Presigned URL": "",
-            "socket-type": "ws"  # Using WebSocket mode
-        })
-
-        # Create and run event loop
-        self.loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.loop)
-
-        try:
-            # Start server
-            self.loop.run_until_complete(self.start_server())
-
-            # Send test config
-            self.loop.run_until_complete(self.send_test_config(config))
-
-        except Exception as e:
-            logger.error(f"Error running custom test: {e}")
-            raise
-        finally:
-            self.cleanup()
+            self.active_connections.discard(websocket)
 
     def cleanup(self):
         """Cleanup resources"""
-        if self.loop and not self.loop.is_closed():
-            if self.server:
-                self.server.close()
-                self.loop.run_until_complete(self.server.wait_closed())
-            self.loop.close()
+        try:
+            if self.loop and not self.loop.is_closed():
+                # Close server
+                if self.server:
+                    self.loop.run_until_complete(self.close_server())
+                # Close loop
+                self.loop.close()
+                self.loop = None
+
+            # Clear active connections
+            self.active_connections.clear()
+
+            # Clear class instance if this is the active one
+            if BackendInterface._active_instance is not None:
+                if BackendInterface._active_instance() is self:
+                    BackendInterface._active_instance = None
+
+            # Wait a moment for cleanup
+            time.sleep(0.1)
+
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
+        logger.info("Backend interface cleaned up")

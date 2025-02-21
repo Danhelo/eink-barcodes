@@ -31,7 +31,8 @@ class TestWorker(QThread):
         self.backend = BackendInterface()
         self.running = True
         self.websocket = None
-        self.server = None
+        self.completed = False
+        self.stopped = False
 
     def run(self):
         """Run the test."""
@@ -46,7 +47,7 @@ class TestWorker(QThread):
 
         except Exception as e:
             self.error.emit(str(e))
-            self.finished.emit(False)
+            self.finished.emit(False)  # Not completed successfully
         finally:
             self.cleanup()
 
@@ -54,13 +55,18 @@ class TestWorker(QThread):
         """Clean up resources."""
         try:
             # Close the backend
-            if hasattr(self, 'backend'):
+            if hasattr(self, 'backend') and self.backend:
                 self.backend.cleanup()
+                self.backend = None
 
             # Close any event loop
-            loop = asyncio.get_event_loop()
-            if loop and not loop.is_closed():
-                loop.close()
+            try:
+                loop = asyncio.get_event_loop()
+                loop.run_until_complete(asyncio.sleep(0.1))  # Allow time for cleanup
+                if loop and not loop.is_closed():
+                    loop.close()
+            except RuntimeError:
+                pass  # Loop may already be closed
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
 
@@ -85,16 +91,18 @@ class TestWorker(QThread):
                             self.progress.emit(data.get("progress", 0))
                         elif data.get("status") == "complete":
                             logger.info("Test completed successfully")
-                            self.finished.emit(True)
+                            self.completed = True
+                            self.finished.emit(True)  # Completed successfully
                             break
                         elif data.get("status") == "error":
                             logger.error(f"Test error: {data.get('message')}")
                             self.error.emit(data.get("message"))
-                            self.finished.emit(False)
+                            self.finished.emit(False)  # Not completed successfully
                             break
                         elif data.get("status") == "stopped":
                             logger.info("Test stopped by user")
-                            self.finished.emit(False)
+                            self.stopped = True
+                            self.finished.emit(False)  # Not completed successfully
                             break
 
                     except asyncio.TimeoutError:
@@ -104,7 +112,8 @@ class TestWorker(QThread):
                             await websocket.send(json.dumps({
                                 "command": "stop"
                             }))
-                            self.finished.emit(False)
+                            self.stopped = True
+                            self.finished.emit(False)  # Not completed successfully
                             break
                     except websockets.exceptions.ConnectionClosed:
                         if self.running:  # Only emit error if we didn't stop intentionally
@@ -119,6 +128,7 @@ class TestWorker(QThread):
 
     def stop(self):
         """Stop the test."""
+        self.stopped = True
         self.running = False
 
 class QuickTestPage(QWidget):
@@ -331,11 +341,12 @@ class QuickTestPage(QWidget):
         if self.test_worker and self.test_worker.isRunning():
             self.test_worker.stop()  # Signal worker to stop
             self.test_worker.wait()  # Wait for worker to finish
+            self.reset_ui()
 
     def test_finished(self, completed: bool):
         """Handle test completion."""
         self.reset_ui()
-        if completed:
+        if self.test_worker and self.test_worker.completed:
             QMessageBox.information(self, "Test Complete", "Test sequence completed successfully")
         else:
             QMessageBox.information(self, "Test Stopped", "Test sequence was stopped by user")
@@ -356,4 +367,6 @@ class QuickTestPage(QWidget):
         # Clean up worker
         if self.test_worker:
             self.test_worker.cleanup()
+            self.test_worker.running = False
+            self.test_worker.wait()  # Wait for thread to finish
             self.test_worker = None
