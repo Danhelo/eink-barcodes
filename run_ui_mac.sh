@@ -13,9 +13,9 @@ export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 if [ -t 0 ]; then
     echo "Running from terminal"
     # Run with debug output
-    python app_ui.py
+    python app.py
 else
     echo "Running from GUI"
     # Run without debug output
-    pythonw app_ui.py
+    pythonw app.py
 fi

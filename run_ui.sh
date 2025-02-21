@@ -1,61 +1,43 @@
 #!/bin/bash
 
-# Function to detect environment
-detect_env() {
-    if [[ -n $SSH_CLIENT ]] || [[ -n $SSH_TTY ]]; then
-        echo "ssh"
-    elif [[ $(tty) =~ /dev/tty[0-9] ]]; then
-        echo "console"
-    else
-        echo "desktop"
-    fi
-}
+# Kill any existing Xvfb processes
+pkill Xvfb || true
 
-# Function to check if X server is running
-check_x_server() {
-    if command -v xset &> /dev/null && xset q &>/dev/null; then
-        return 0
-    else
-        return 1
-    fi
-}
+# Start Xvfb with specific display and error handling
+Xvfb :99 -screen 0 1024x768x24 &
+XVFB_PID=$!
+export DISPLAY=:99
 
-# Get environment
-ENV=$(detect_env)
-echo "Detected environment: $ENV"
+# Wait for Xvfb to start and verify it's running
+sleep 2
+if ! ps -p $XVFB_PID > /dev/null; then
+    echo "Error: Failed to start Xvfb"
+    exit 1
+fi
 
-# Handle different environments
-case $ENV in
-    "ssh")
-        if [ -z "$DISPLAY" ]; then
-            echo "No display set, using virtual framebuffer..."
-            export DISPLAY=:99
-            Xvfb :99 -screen 0 1024x768x16 &
-            XVFB_PID=$!
-            sleep 1
-            python app_ui.py
-            kill $XVFB_PID
-        else
-            echo "Display already set to $DISPLAY"
-            python app_ui.py
-        fi
-        ;;
-    "console")
-        if check_x_server; then
-            echo "X server detected, using existing display"
-            python app_ui.py
-        else
-            echo "No X server, using virtual framebuffer..."
-            export DISPLAY=:99
-            Xvfb :99 -screen 0 1024x768x16 &
-            XVFB_PID=$!
-            sleep 1
-            python app_ui.py
-            kill $XVFB_PID
-        fi
-        ;;
-    "desktop")
-        echo "Running in desktop environment"
-        python app_ui.py
-        ;;
-esac
+# Activate virtual environment if it exists
+if [ -d "venv" ]; then
+    source venv/bin/activate
+fi
+
+# Ensure required packages are installed
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Error: Python 3 is required but not installed"
+    exit 1
+fi
+
+if ! python3 -c "import PyQt5" >/dev/null 2>&1; then
+    echo "Error: PyQt5 is required but not installed"
+    echo "Please install with: pip install PyQt5"
+    exit 1
+fi
+
+# Run the UI application with error handling
+python3 app_ui.py
+UI_EXIT_CODE=$?
+
+# Cleanup
+kill $XVFB_PID || pkill Xvfb
+
+# Exit with the UI's exit code
+exit $UI_EXIT_CODE
