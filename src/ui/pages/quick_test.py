@@ -22,6 +22,13 @@ class QuickTestPage(BaseTestPage):
     page_title = "Quick Test"
 
     def __init__(self, parent=None, test_controller: Optional[TestController] = None):
+        """Initialize QuickTestPage.
+
+        Args:
+            parent: Parent widget (should be MainWindow)
+            test_controller: Test controller instance
+        """
+        # Ensure parent is set before base class initialization
         super().__init__(parent, test_controller)
         self.current_barcodes: List[str] = []
         self.current_index: int = 0
@@ -71,7 +78,8 @@ class QuickTestPage(BaseTestPage):
         layout.addWidget(preview_group)
 
         # Controls
-        layout.addWidget(self.create_controls_group())
+        controls_group = self.create_controls_group()
+        layout.addWidget(controls_group)
 
         # Progress bar
         self.progress = self.create_progress_bar()

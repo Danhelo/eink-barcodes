@@ -24,6 +24,13 @@ class CustomTestPage(BaseTestPage):
     page_title = "Custom Test"
 
     def __init__(self, parent=None, test_controller: Optional[TestController] = None):
+        """Initialize CustomTestPage.
+
+        Args:
+            parent: Parent widget (should be MainWindow)
+            test_controller: Test controller instance
+        """
+        # Ensure parent is set before base class initialization
         super().__init__(parent, test_controller)
         self.current_image: Optional[Image.Image] = None
         self.current_image_path: Optional[str] = None
@@ -230,3 +237,4 @@ class CustomTestPage(BaseTestPage):
             logger.error(f"Failed to create test config: {e}")
             self.handle_error(str(e))
             return None
+
