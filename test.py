@@ -44,19 +44,38 @@ def display_connection(virtual=False, mirror=False):
 
 async def testing(websocket, msg, project_root=None):
     print(msg)
+    try:
+        success = False
+        # Get mirror setting from transformations if present
+        mirror = msg.get('transformations', {}).get('mirror', False)
 
-    # Get mirror setting from transformations if present
-    mirror = msg.get('transformations', {}).get('mirror', False)
+        # Initialize display with mirror setting only
+        display, tests = display_connection(
+            virtual=False,  # Always use real display when called from app.py
+            mirror=mirror
+        )
 
-    # Initialize display with mirror setting only
-    display, tests = display_connection(
-        virtual=False,  # Always use real display when called from app.py
-        mirror=mirror
-    )
+        print("Display connected, starting to display barcode.....")
+        clear_display(display)
+        await display_image_8bpp(websocket, display, msg, project_root)
 
-    print("Display connected, starting to display barcode.....")
-    clear_display(display)
-    await display_image_8bpp(websocket, display, msg, project_root)
+        success = True
+        # Send success message
+        await websocket.send(json.dumps({
+            "status": "success",
+            "message": "Test completed successfully"
+        }))
+
+        # Mark test as completed
+        await websocket.send(json.dumps({"status": "complete"}))
+
+    except Exception as e:
+        # Send error message
+        await websocket.send(json.dumps({
+            "status": "error",
+            "message": str(e)
+        }))
+        raise
 
 if __name__ == "__main__":
     # This section only runs when test.py is run directly, not when imported

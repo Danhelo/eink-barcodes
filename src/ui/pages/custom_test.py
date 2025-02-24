@@ -1,78 +1,40 @@
+"""
+Custom test page implementation with advanced options.
+"""
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, QComboBox, QSpinBox, QDoubleSpinBox,
-    QSlider, QGroupBox, QProgressBar, QCheckBox,
-    QFileDialog, QMessageBox
+    QVBoxLayout, QHBoxLayout, QLabel,
+    QComboBox, QSpinBox, QDoubleSpinBox,
+    QSlider, QGroupBox, QCheckBox,
+    QFileDialog, QPushButton
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QThread
-from PyQt5.QtGui import QFont, QPixmap
+from PyQt5.QtCore import Qt
 import os
 import logging
 from PIL import Image
 from typing import Optional
-import asyncio
-import json
 
-from ..widgets.preview import PreviewWidget
-from ...core.test_config import TestConfig
-from ...core.backend_interface import BackendInterface
+from .base_test_page import BaseTestPage
+from ...core.test_controller import TestConfig
 
 logger = logging.getLogger(__name__)
 
-class TestWorker(QThread):
-    """Worker thread for running tests."""
-    progress = pyqtSignal(int)
-    error = pyqtSignal(str)
-    finished = pyqtSignal()
+class CustomTestPage(BaseTestPage):
+    """Custom test page with advanced configuration options."""
 
-    def __init__(self, config: dict):
-        super().__init__()
-        self.config = config
-        self.backend = BackendInterface()
-        self.running = True
-
-    def run(self):
-        """Run the test."""
-        try:
-            # Create event loop for this thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-            # Start server and run test
-            loop.run_until_complete(self.backend.start_server())
-            loop.run_until_complete(self.backend.send_test_config(self.config))
-
-        except Exception as e:
-            self.error.emit(str(e))
-        finally:
-            self.finished.emit()
-            if hasattr(self, 'backend'):
-                self.backend.cleanup()
-
-class CustomTestPage(QWidget):
-    """Custom test configuration page with advanced options."""
-    test_started = pyqtSignal(TestConfig)
+    page_title = "Custom Test"
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.main_window = self.window()
-        self.config = TestConfig()
         self.current_image: Optional[Image.Image] = None
-        self.test_worker: Optional[TestWorker] = None
+        self.current_image_path: Optional[str] = None
         self.setup_ui()
 
     def setup_ui(self):
         """Initialize the user interface."""
-        layout = QVBoxLayout()
-        layout.setSpacing(25)
-        layout.setContentsMargins(30, 30, 30, 30)
+        layout, _ = self.setup_base_ui()
 
-        # Title
-        title = QLabel("Custom Test")
-        title.setFont(QFont("Arial", 32, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("color: #FFFFFF; margin-bottom: 20px;")
-        layout.addWidget(title)
+        # Split into left and right columns
+        content_layout = QHBoxLayout()
 
         # Left side - Configuration
         config_layout = QVBoxLayout()
@@ -170,45 +132,18 @@ class CustomTestPage(QWidget):
 
         # Right side - Preview
         preview_layout = QVBoxLayout()
-
-        # Preview widget
-        preview_group = QGroupBox("Preview")
-        preview_inner = QVBoxLayout()
-        self.preview = PreviewWidget()
-        preview_inner.addWidget(self.preview)
-        preview_group.setLayout(preview_inner)
-        preview_layout.addWidget(preview_group)
+        preview_layout.addWidget(self.create_preview_group())
 
         # Combine layouts
-        content_layout = QHBoxLayout()
         content_layout.addLayout(config_layout, 1)
         content_layout.addLayout(preview_layout, 1)
         layout.addLayout(content_layout)
 
         # Controls
-        controls_group = QGroupBox("Test Controls")
-        controls_layout = QHBoxLayout()
-
-        self.start_button = QPushButton("Start Test")
-        self.start_button.clicked.connect(self.start_test)
-        controls_layout.addWidget(self.start_button)
-
-        self.stop_button = QPushButton("Stop")
-        self.stop_button.clicked.connect(self.stop_test)
-        self.stop_button.setEnabled(False)
-        controls_layout.addWidget(self.stop_button)
-
-        self.back_button = QPushButton("Back to Menu")
-        self.back_button.clicked.connect(lambda: self.main_window.navigate_to(0))
-        controls_layout.addWidget(self.back_button)
-
-        controls_group.setLayout(controls_layout)
-        layout.addWidget(controls_group)
+        layout.addWidget(self.create_controls_group())
 
         # Progress bar
-        self.progress = QProgressBar()
-        self.progress.setTextVisible(True)
-        self.progress.setAlignment(Qt.AlignCenter)
+        self.progress = self.create_progress_bar()
         layout.addWidget(self.progress)
 
         self.setLayout(layout)
@@ -225,13 +160,15 @@ class CustomTestPage(QWidget):
         if file_path:
             try:
                 self.current_image = Image.open(file_path)
+                self.current_image_path = file_path
                 self.file_path.setText(os.path.basename(file_path))
-                self.config.barcode_path = file_path
                 self.update_preview()
             except Exception as e:
                 logger.error(f"Failed to load image: {e}")
                 self.current_image = None
+                self.current_image_path = None
                 self.file_path.setText("Failed to load image")
+                self.preview.clear_preview()
 
     def rotation_changed(self, value: int):
         """Handle rotation slider value change."""
@@ -250,14 +187,14 @@ class CustomTestPage(QWidget):
             # Scale
             if self.scale_spin.value() != 1.0:
                 new_size = tuple(int(dim * self.scale_spin.value()) for dim in image.size)
-                image = image.resize(new_size, Image.LANCZOS)
+                image = image.resize(new_size, Image.Resampling.LANCZOS)
 
             # Rotate
             if self.rotation_slider.value() != 0:
                 image = image.rotate(
                     self.rotation_slider.value(),
                     expand=True,
-                    resample=Image.BICUBIC
+                    resample=Image.Resampling.BICUBIC
                 )
 
             # Update preview
@@ -265,67 +202,31 @@ class CustomTestPage(QWidget):
 
         except Exception as e:
             logger.error(f"Failed to update preview: {e}")
+            self.preview.clear_preview()
 
-    def start_test(self):
-        """Start the test sequence."""
+    def validate_config(self) -> bool:
+        """Validate test configuration."""
+        if not self.current_image or not self.current_image_path:
+            self.handle_error("No image selected")
+            return False
+        return True
+
+    def create_test_config(self) -> Optional[TestConfig]:
+        """Create test configuration."""
         try:
-            if not self.current_image:
-                raise ValueError("No image selected")
-
-            # Create test configuration
-            config = {
-                "command": "Display Barcode",
-                "Presigned URL": "",
-                "pre-test": "no",
-                "known_barcode": "no",  # Custom test uses uploaded image
-                "barcode-type": self.type_combo.currentText(),
-                "socket-type": "ws",  # Using WebSocket mode
-                "transformations": {
+            return TestConfig(
+                barcode_type=self.type_combo.currentText(),
+                image_paths=[self.current_image_path] * self.count_spin.value(),
+                transformations={
                     "rotation": float(self.rotation_slider.value()),
                     "scale": self.scale_spin.value(),
-                    "mirror": False
+                    "auto_center": self.auto_center.isChecked()
                 },
-                "barcode_path": self.config.barcode_path
-            }
-
-            # Create and start worker thread
-            self.test_worker = TestWorker(config)
-            self.test_worker.progress.connect(self.progress.setValue)
-            self.test_worker.error.connect(self.handle_error)
-            self.test_worker.finished.connect(self.test_finished)
-
-            # Update UI state
-            self.start_button.setEnabled(False)
-            self.stop_button.setEnabled(True)
-            self.progress.setValue(0)
-
-            # Start test
-            self.test_worker.start()
-
+                test_params={
+                    "refresh_rate": self.refresh_spin.value()
+                }
+            )
         except Exception as e:
-            logger.error(f"Failed to start test: {e}")
+            logger.error(f"Failed to create test config: {e}")
             self.handle_error(str(e))
-
-    def stop_test(self):
-        """Stop the current test."""
-        if self.test_worker and self.test_worker.isRunning():
-            self.test_worker.running = False
-            self.test_worker.wait()
-        self.reset_ui()
-
-    def test_finished(self):
-        """Handle test completion."""
-        self.reset_ui()
-        QMessageBox.information(self, "Test Complete", "Test sequence completed successfully")
-
-    def handle_error(self, error_msg: str):
-        """Handle test errors."""
-        logger.error(f"Test error: {error_msg}")
-        self.reset_ui()
-        QMessageBox.critical(self, "Test Error", f"Error during test: {error_msg}")
-
-    def reset_ui(self):
-        """Reset UI to initial state."""
-        self.start_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
-        self.progress.setValue(0)
+            return None
