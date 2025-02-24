@@ -8,39 +8,21 @@ import platform
 import logging
 
 from .pages import MainMenuPage, QuickTestPage, CustomTestPage
-from ..core.display import DisplayManager, VirtualDisplay
+from ..core.test_controller import TestController
 
 logger = logging.getLogger(__name__)
 
 class MainWindow(QMainWindow):
     """Main application window."""
 
-    def __init__(self):
+    def __init__(self, test_controller: TestController):
         super().__init__()
+        self.test_controller = test_controller
         self.setWindowTitle("E-ink Barcode Testing")
         self.setMinimumSize(1000, 800)
 
-        self.setup_display()
         self.setup_ui()
         self.apply_theme()
-
-    def setup_display(self):
-        """Initialize the display system."""
-        try:
-            self.display = DisplayManager.get_display()
-            if isinstance(self.display, VirtualDisplay):
-                QMessageBox.warning(
-                    self,
-                    "Virtual Display Mode",
-                    "IT8951 display module not found. Running in virtual display mode."
-                )
-        except Exception as e:
-            logger.error("Failed to initialize display: %s", e)
-            QMessageBox.critical(
-                self,
-                "Display Error",
-                f"Failed to initialize display: {e}"
-            )
 
     def setup_ui(self):
         """Initialize the user interface."""
@@ -64,8 +46,8 @@ class MainWindow(QMainWindow):
 
         # Create pages
         self.menu_page = MainMenuPage(self)
-        self.quick_test_page = QuickTestPage(self)
-        self.custom_test_page = CustomTestPage(self)
+        self.quick_test_page = QuickTestPage(self, self.test_controller)
+        self.custom_test_page = CustomTestPage(self, self.test_controller)
 
         # Add pages to stack
         self.stacked_widget.addWidget(self.menu_page)

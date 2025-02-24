@@ -12,7 +12,7 @@ from PIL import Image
 from typing import Optional, List
 
 from .base_test_page import BaseTestPage
-from ...core.test_controller import TestConfig
+from ...core.test_controller import TestController, TestConfig
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +21,8 @@ class QuickTestPage(BaseTestPage):
 
     page_title = "Quick Test"
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    def __init__(self, parent=None, test_controller: Optional[TestController] = None):
+        super().__init__(parent, test_controller)
         self.current_barcodes: List[str] = []
         self.current_index: int = 0
         self.setup_ui()
@@ -48,7 +48,7 @@ class QuickTestPage(BaseTestPage):
         preview_layout = QVBoxLayout()
 
         # Preview widget
-        self.preview = PreviewWidget()
+        self.preview = self.create_preview_widget()
         preview_layout.addWidget(self.preview)
 
         # Navigation controls
@@ -157,7 +157,7 @@ class QuickTestPage(BaseTestPage):
     def create_test_config(self) -> Optional[TestConfig]:
         """Create test configuration."""
         try:
-            return TestConfig(
+            return self.test_controller.create_config(
                 barcode_type=self.barcode_combo.currentText(),
                 image_paths=[self.current_barcodes[self.current_index]],
                 transformations={

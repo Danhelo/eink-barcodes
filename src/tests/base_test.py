@@ -1,150 +1,122 @@
-"""
-Base test case implementation with common functionality.
-"""
-import unittest
-import logging
-from typing import Any, Optional
-from PIL import Image
-import numpy as np
+import pytest
+import asyncio
+from pathlib import Path
+import shutil
+from PyQt5.QtWidgets import QApplication
+from src.core.display_manager import DisplayManager
+from src.core.state_manager import StateManager
+from src.core.test_controller import TestController
 
-class BaseTestCase(unittest.TestCase):
-    """Base test case with helper methods."""
+class BaseTestCase:
+    """Base class for all test cases."""
 
-    @classmethod
-    def setUpClass(cls):
-        """Set up test class."""
-        # Configure logging
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        cls.logger = logging.getLogger(cls.__name__)
+    @pytest.fixture(autouse=True)
+    def setup_test(self, qapp):
+        """Set up test environment with QApplication instance."""
+        self.app = qapp
+        yield
+        self.app.processEvents()
 
-    def setUp(self):
-        """Set up test case."""
-        self.logger.info(f"Running test: {self._testMethodName}")
+    @pytest.fixture
+    async def display_manager(self):
+        """Create a virtual display manager for testing."""
+        manager = DisplayManager(virtual=True)
+        await manager.initialize()
+        yield manager
+        await manager.cleanup()
 
-    def tearDown(self):
-        """Clean up after test."""
-        self.logger.info(f"Completed test: {self._testMethodName}")
+    @pytest.fixture
+    def state_manager(self):
+        """Create a state manager instance."""
+        return StateManager()
 
-    def assertImageEqual(self, img1: Image.Image, img2: Image.Image, msg: Optional[str] = None):
-        """Assert that two images are equal.
+    @pytest.fixture
+    def test_controller(self, state_manager, display_manager):
+        """Create a test controller instance."""
+        return TestController(state_manager, display_manager)
 
-        Args:
-            img1: First image
-            img2: Second image
-            msg: Optional assertion message
-        """
-        # Convert to numpy arrays for comparison
+    @pytest.fixture
+    def test_resources(self):
+        """Set up and clean up test resources directory."""
+        resource_dir = Path("test_resources")
+        resource_dir.mkdir(exist_ok=True)
+        yield resource_dir
+        if resource_dir.exists():
+            shutil.rmtree(resource_dir)
+
+    @staticmethod
+    async def process_events(qtbot, timeout=100):
+        """Process Qt events with timeout."""
+        qtbot.wait(timeout)
+
+    @staticmethod
+    def create_test_image(size=(100, 100), color=255):
+        """Create a test image with specified size and color."""
+        from PIL import Image
+        return Image.new('L', size, color)
+
+    @staticmethod
+    def compare_images(img1, img2, tolerance=0):
+        """Compare two images with optional tolerance."""
+        import numpy as np
+        if img1.size != img2.size:
+            return False
         arr1 = np.array(img1)
         arr2 = np.array(img2)
+        return np.all(np.abs(arr1 - arr2) <= tolerance)
 
-        # Compare arrays
-        self.assertTrue(
-            np.array_equal(arr1, arr2),
-            msg or "Images are not equal"
-        )
+    @staticmethod
+    def get_test_file_path(filename):
+        """Get path to a test file in the test resources directory."""
+        return Path("test_resources") / filename
 
-    def assertImageSimilar(self, img1: Image.Image, img2: Image.Image,
-                          threshold: float = 0.95, msg: Optional[str] = None):
-        """Assert that two images are similar within a threshold.
+class BaseUITestCase(BaseTestCase):
+    """Base class for UI-specific test cases."""
 
-        Args:
-            img1: First image
-            img2: Second image
-            threshold: Similarity threshold (0-1)
-            msg: Optional assertion message
-        """
-        # Convert to numpy arrays
-        arr1 = np.array(img1)
-        arr2 = np.array(img2)
+    @pytest.fixture(autouse=True)
+    def setup_ui_test(self, qtbot):
+        """Set up UI test environment with qtbot."""
+        self.qtbot = qtbot
+        yield
 
-        # Calculate similarity
-        similarity = np.mean(arr1 == arr2)
+    async def click_button(self, button, timeout=100):
+        """Click a button and wait for events to process."""
+        from PyQt5.QtCore import Qt
+        self.qtbot.mouseClick(button, Qt.LeftButton)
+        await self.process_events(self.qtbot, timeout)
 
-        self.assertGreaterEqual(
-            similarity,
-            threshold,
-            msg or f"Images similarity {similarity:.2%} below threshold {threshold:.2%}"
-        )
+    async def enter_text(self, widget, text, timeout=100):
+        """Enter text into a widget and wait for events to process."""
+        widget.setText(text)
+        await self.process_events(self.qtbot, timeout)
 
-    def assertImageSize(self, img: Image.Image, expected_size: tuple,
-                       msg: Optional[str] = None):
-        """Assert image dimensions.
+    def verify_widget_state(self, widget, property_name, expected_value):
+        """Verify a widget's property value."""
+        actual_value = getattr(widget, property_name)
+        assert actual_value == expected_value, \
+            f"Widget {widget.__class__.__name__} {property_name} mismatch. " \
+            f"Expected {expected_value}, got {actual_value}"
 
-        Args:
-            img: Image to check
-            expected_size: Expected (width, height)
-            msg: Optional assertion message
-        """
-        self.assertEqual(
-            img.size,
-            expected_size,
-            msg or f"Image size {img.size} != expected {expected_size}"
-        )
+class BaseIntegrationTestCase(BaseTestCase):
+    """Base class for integration test cases."""
 
-    def create_test_image(self, size: tuple = (100, 100),
-                         color: tuple = (255, 255, 255)) -> Image.Image:
-        """Create a test image.
+    @pytest.fixture(autouse=True)
+    async def setup_integration_test(self, display_manager, state_manager):
+        """Set up integration test environment."""
+        self.display_manager = display_manager
+        self.state_manager = state_manager
+        yield
+        await self.cleanup_integration_test()
 
-        Args:
-            size: Image dimensions (width, height)
-            color: Fill color (R,G,B)
+    async def cleanup_integration_test(self):
+        """Clean up integration test resources."""
+        if hasattr(self, 'display_manager'):
+            await self.display_manager.cleanup()
 
-        Returns:
-            PIL Image object
-        """
-        return Image.new('RGB', size, color)
-
-    def load_test_image(self, path: str) -> Optional[Image.Image]:
-        """Load a test image file.
-
-        Args:
-            path: Path to image file
-
-        Returns:
-            PIL Image object or None if load fails
-        """
-        try:
-            return Image.open(path)
-        except Exception as e:
-            self.logger.error(f"Failed to load test image {path}: {e}")
-            return None
-
-    def assertNoLogs(self, logger: Optional[str] = None, level: Optional[str] = None):
-        """Assert that no logs are emitted.
-
-        Args:
-            logger: Logger name (default: root)
-            level: Minimum log level (default: INFO)
-        """
-        with self.assertLogs(logger, level) as cm:
-            self.logger.info("Dummy log message")  # Ensure context manager has at least one log
-
-        # Check only dummy message was logged
-        self.assertEqual(len(cm.output), 1)
-        self.assertIn("Dummy log message", cm.output[0])
-
-    def assertEventually(self, condition: callable, timeout: float = 1.0,
-                        interval: float = 0.1, message: Optional[str] = None):
-        """Assert that a condition becomes true within a timeout.
-
-        Args:
-            condition: Callable that returns bool
-            timeout: Maximum time to wait in seconds
-            interval: Check interval in seconds
-            message: Optional assertion message
-        """
-        import time
-
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            try:
-                if condition():
-                    return
-            except Exception:
-                pass
-            time.sleep(interval)
-
-        self.fail(message or f"Condition not met within {timeout} seconds")
+    async def verify_display_state(self, expected_image=None, timeout=1000):
+        """Verify the display state matches expectations."""
+        await self.process_events(self.qtbot, timeout)
+        if expected_image:
+            current_image = self.display_manager.get_current_image()
+            assert self.compare_images(current_image, expected_image), \
+                "Display image does not match expected image"

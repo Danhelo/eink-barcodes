@@ -6,9 +6,10 @@ from typing import List, Dict, Any, Optional
 import logging
 import uuid
 import asyncio
+from PIL import Image
 
 from .state_manager import StateManager, TestState, TestContext
-from .display_manager import DisplayManager, DisplayConfig
+from .display_manager import BaseDisplayManager, DisplayConfig
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ class TestConfig:
 
 class TestController:
     """Manages test execution lifecycle"""
-    def __init__(self, state_manager: StateManager, display_manager: DisplayManager):
+    def __init__(self, state_manager: StateManager, display_manager: BaseDisplayManager):
         self.state_manager = state_manager
         self.display_manager = display_manager
         self._current_config: Optional[TestConfig] = None
@@ -78,12 +79,13 @@ class TestController:
                     "processed_images": idx + 1
                 })
 
-                # Display image
-                if not await self.display_manager.display_image(
-                    image_path,
-                    self._current_config.transformations
-                ):
-                    raise RuntimeError(f"Failed to display image: {image_path}")
+                # Load and display image
+                try:
+                    image = Image.open(image_path)
+                    if not await self.display_manager.display_image(image):
+                        raise RuntimeError(f"Failed to display image: {image_path}")
+                except Exception as e:
+                    raise RuntimeError(f"Failed to process image {image_path}: {e}")
 
                 # Small delay between images
                 await asyncio.sleep(0.1)

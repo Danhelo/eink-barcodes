@@ -1,18 +1,11 @@
-"""
-State management system for test execution.
-"""
 from enum import Enum, auto
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
-from abc import ABC, abstractmethod
-import time
-import logging
-
-logger = logging.getLogger(__name__)
+from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
+from PyQt5.QtCore import QObject
 
 class TestState(Enum):
-    """Test execution states"""
     NOT_STARTED = auto()
+    IDLE = auto()
     INITIALIZING = auto()
     RUNNING = auto()
     PAUSED = auto()
@@ -30,135 +23,120 @@ class DisplayState(Enum):
 
 @dataclass
 class TestContext:
-    """Test execution context"""
+    """Stores test execution context"""
     test_id: str
     config: Dict[str, Any]
-    current_image: Optional[str] = None
-    progress: float = 0.0
-    total_images: int = 0
+    total_images: int
+    current_image: str = ""
     processed_images: int = 0
-    start_time: Optional[float] = None
-    end_time: Optional[float] = None
+    progress: float = 0.0
     error: Optional[str] = None
-    metrics: Dict[str, Any] = field(default_factory=dict)
 
-    def add_metric(self, key: str, value: Any) -> None:
-        """Add a metric to the context"""
-        self.metrics[key] = value
+class StateObserver(QObject):
+    """Base class for state observers using Qt's metaclass"""
 
-    @property
-    def duration(self) -> Optional[float]:
-        """Get test duration in seconds"""
-        if self.start_time:
-            end = self.end_time or time.time()
-            return end - self.start_time
-        return None
-
-class StateObserver(ABC):
-    """State observer interface"""
-    @abstractmethod
-    def on_state_change(self, state: TestState, context: TestContext) -> None:
-        """Handle state change events"""
-        pass
-
-class StateManager:
-    """Centralized state management"""
     def __init__(self):
-        self._test_state: TestState = TestState.NOT_STARTED
-        self._display_state: DisplayState = DisplayState.DISCONNECTED
-        self._context: Optional[TestContext] = None
-        self._observers: List[StateObserver] = []
-        self._state_history: List[tuple[TestState, TestContext]] = []
+        super().__init__()
+        self._test_state = TestState.IDLE
+        self._display_state = DisplayState.DISCONNECTED
 
-    def register_observer(self, observer: StateObserver) -> None:
-        """Register new state observer"""
-        if observer not in self._observers:
-            self._observers.append(observer)
-            logger.debug(f"Registered observer: {observer.__class__.__name__}")
-
-    def remove_observer(self, observer: StateObserver) -> None:
-        """Remove state observer"""
-        if observer in self._observers:
-            self._observers.remove(observer)
-            logger.debug(f"Removed observer: {observer.__class__.__name__}")
-
-    def update_state(self, new_state: TestState, context_updates: Dict[str, Any] = None) -> None:
-        """Update test state with context"""
-        if not self.can_transition_to(new_state):
-            raise ValueError(f"Invalid state transition from {self._test_state} to {new_state}")
-
-        old_state = self._test_state
+    def on_state_changed(self, new_state: TestState, context: Optional[Dict] = None):
+        """Called when test state changes"""
         self._test_state = new_state
 
-        # Update context if provided
-        if context_updates and self._context:
-            for key, value in context_updates.items():
-                setattr(self._context, key, value)
+    def on_display_state_changed(self, new_state: DisplayState):
+        """Called when display state changes"""
+        self._display_state = new_state
 
-            # Auto-update timestamps
-            if new_state == TestState.RUNNING and not self._context.start_time:
-                self._context.start_time = time.time()
-            elif new_state in (TestState.COMPLETED, TestState.FAILED, TestState.STOPPED):
-                self._context.end_time = time.time()
+class StateManager(QObject):
+    """Manages application state and notifies observers"""
 
-        # Record state change
-        self._state_history.append((new_state, self._context))
+    def __init__(self):
+        super().__init__()
+        self._test_state = TestState.NOT_STARTED
+        self._display_state = DisplayState.DISCONNECTED
+        self._context: Optional[TestContext] = None
+        self._observers: List[StateObserver] = []
 
-        # Log state change
-        logger.info(f"State transition: {old_state} -> {new_state}")
-        if context_updates:
-            logger.debug(f"Context updates: {context_updates}")
+    def add_observer(self, observer: StateObserver):
+        """Add an observer to be notified of state changes"""
+        if observer not in self._observers:
+            self._observers.append(observer)
 
-        # Notify observers
-        self._notify_observers()
+    def remove_observer(self, observer: StateObserver):
+        """Remove an observer"""
+        if observer in self._observers:
+            self._observers.remove(observer)
 
-    def _notify_observers(self) -> None:
-        """Notify all observers of state change"""
-        for observer in self._observers:
-            try:
-                observer.on_state_change(self._test_state, self._context)
-            except Exception as e:
-                logger.error(f"Error notifying observer {observer.__class__.__name__}: {e}")
-
-    def get_current_state(self) -> tuple[TestState, Optional[TestContext]]:
-        """Get current state and context"""
-        return self._test_state, self._context
-
-    def can_transition_to(self, target_state: TestState) -> bool:
-        """Validate state transition"""
-        valid_transitions = {
-            TestState.NOT_STARTED: [TestState.INITIALIZING],
-            TestState.INITIALIZING: [TestState.RUNNING, TestState.FAILED],
-            TestState.RUNNING: [TestState.PAUSED, TestState.COMPLETED, TestState.FAILED, TestState.STOPPED],
-            TestState.PAUSED: [TestState.RUNNING, TestState.STOPPED],
-            TestState.COMPLETED: [TestState.NOT_STARTED],
-            TestState.FAILED: [TestState.NOT_STARTED],
-            TestState.STOPPED: [TestState.NOT_STARTED]
-        }
-        return target_state in valid_transitions.get(self._test_state, [])
-
-    def set_context(self, context: TestContext) -> None:
-        """Set new test context"""
-        self._context = context
-        logger.info(f"New test context set: {context.test_id}")
-        self._notify_observers()
-
-    def clear_context(self) -> None:
-        """Clear current context"""
-        self._context = None
-        logger.info("Test context cleared")
-        self._notify_observers()
-
-    def get_state_history(self) -> List[tuple[TestState, TestContext]]:
-        """Get state transition history"""
-        return self._state_history.copy()
-
-    def update_display_state(self, state: DisplayState) -> None:
-        """Update display hardware state"""
-        self._display_state = state
-        logger.info(f"Display state updated: {state}")
-        # Note: Display state changes don't trigger observer notifications
+    def get_test_state(self) -> TestState:
+        """Get current test state"""
+        return self._test_state
 
     def get_display_state(self) -> DisplayState:
         """Get current display state"""
         return self._display_state
+
+    def get_context(self) -> Optional[TestContext]:
+        """Get current test context"""
+        return self._context
+
+    def set_context(self, context: TestContext):
+        """Set test context"""
+        self._context = context
+
+    def clear_context(self):
+        """Clear test context"""
+        self._context = None
+
+    def update_state(self, new_state: TestState, context_updates: Dict[str, Any] = None):
+        """Update test state and context, then notify observers"""
+        if new_state != self._test_state and self.can_transition_to(new_state):
+            self._test_state = new_state
+
+            # Update context if provided
+            if context_updates and self._context:
+                for key, value in context_updates.items():
+                    setattr(self._context, key, value)
+
+            self._notify_test_state()
+
+    def update_display_state(self, new_state: DisplayState):
+        """Update display state and notify observers"""
+        if new_state != self._display_state:
+            self._display_state = new_state
+            self._notify_display_state()
+
+    def can_transition_to(self, new_state: TestState) -> bool:
+        """Check if transition to new state is valid"""
+        # Define valid transitions
+        valid_transitions = {
+            TestState.NOT_STARTED: [TestState.IDLE],
+            TestState.IDLE: [TestState.INITIALIZING],
+            TestState.INITIALIZING: [TestState.RUNNING, TestState.FAILED],
+            TestState.RUNNING: [TestState.PAUSED, TestState.COMPLETED, TestState.FAILED, TestState.STOPPED],
+            TestState.PAUSED: [TestState.RUNNING, TestState.STOPPED],
+            TestState.COMPLETED: [TestState.IDLE],
+            TestState.FAILED: [TestState.IDLE],
+            TestState.STOPPED: [TestState.IDLE]
+        }
+
+        return new_state in valid_transitions.get(self._test_state, [])
+
+    def _notify_test_state(self):
+        """Notify observers of test state change"""
+        context_dict = None
+        if self._context:
+            context_dict = {
+                'test_id': self._context.test_id,
+                'progress': self._context.progress,
+                'current_image': self._context.current_image,
+                'error': self._context.error
+            }
+
+        for observer in self._observers:
+            observer.on_state_changed(self._test_state, context_dict)
+
+    def _notify_display_state(self):
+        """Notify observers of display state change"""
+        for observer in self._observers:
+            observer.on_display_state_changed(self._display_state)

@@ -14,7 +14,7 @@ from PIL import Image
 from typing import Optional
 
 from .base_test_page import BaseTestPage
-from ...core.test_controller import TestConfig
+from ...core.test_controller import TestController, TestConfig
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +23,8 @@ class CustomTestPage(BaseTestPage):
 
     page_title = "Custom Test"
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    def __init__(self, parent=None, test_controller: Optional[TestController] = None):
+        super().__init__(parent, test_controller)
         self.current_image: Optional[Image.Image] = None
         self.current_image_path: Optional[str] = None
         self.setup_ui()
@@ -214,7 +214,7 @@ class CustomTestPage(BaseTestPage):
     def create_test_config(self) -> Optional[TestConfig]:
         """Create test configuration."""
         try:
-            return TestConfig(
+            return self.test_controller.create_config(
                 barcode_type=self.type_combo.currentText(),
                 image_paths=[self.current_image_path] * self.count_spin.value(),
                 transformations={
