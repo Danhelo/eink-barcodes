@@ -2,23 +2,35 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from src.core.test_controller import TestController, TestConfig
 from src.core.state_manager import StateManager, TestState
-from src.core.display_manager import DisplayManager, DisplayConfig
+from src.core.display_manager import create_display_manager, DisplayConfig
 
 @pytest.fixture
 def state_manager():
     return StateManager()
 
 @pytest.fixture
-def display_manager():
-    manager = AsyncMock(spec=DisplayManager)
+def display_config():
+    return DisplayConfig(
+        virtual=True,
+        vcom=-2.02,
+        dimensions=(800, 600)
+    )
+
+@pytest.fixture
+def display_manager(state_manager, display_config):
+    manager = AsyncMock()
     manager.initialize.return_value = True
     manager.display_image.return_value = True
     manager.clear.return_value = True
+    manager.is_ready = True
     return manager
 
 @pytest.fixture
 def test_controller(state_manager, display_manager):
-    return TestController(state_manager, display_manager)
+    return TestController(
+        state_manager=state_manager,
+        display_manager=display_manager
+    )
 
 @pytest.fixture
 def test_config():
@@ -27,7 +39,7 @@ def test_config():
         barcode_type="code128",
         image_paths=["test1.png", "test2.png"],
         transformations={"mirror": True},
-        display_config=DisplayConfig()
+        display_config=DisplayConfig(virtual=True)
     )
 
 @pytest.mark.asyncio

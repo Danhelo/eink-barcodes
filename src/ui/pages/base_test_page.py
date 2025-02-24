@@ -2,9 +2,11 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QProgressBar, QGroupBox, QMessageBox
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from typing import Optional, Tuple
 from PIL import Image
+import asyncio
+import qasync
 
 from src.core.state_manager import StateObserver, TestState
 from src.core.test_controller import TestController, TestConfig
@@ -20,6 +22,7 @@ class BaseTestPage(QWidget):
         self.test_controller = test_controller
         self.preview: Optional[PreviewWidget] = None
         self.progress: Optional[QProgressBar] = None
+        self._test_running = False
 
     def setup_base_ui(self) -> Tuple[QVBoxLayout, QLabel]:
         """Set up the basic UI elements"""
@@ -61,7 +64,7 @@ class BaseTestPage(QWidget):
 
         # Start button
         start_btn = QPushButton("Start Test")
-        start_btn.clicked.connect(self.start_test)
+        start_btn.clicked.connect(self._handle_start_click)
         layout.addWidget(start_btn)
 
         group.setLayout(layout)
@@ -78,6 +81,21 @@ class BaseTestPage(QWidget):
         """Return to main menu"""
         if hasattr(self.parent(), 'show_menu'):
             self.parent().show_menu()
+
+    def _handle_start_click(self):
+        """Handle start button click by scheduling async test"""
+        if self._test_running:
+            return
+
+        self._test_running = True
+        asyncio.create_task(self._run_test())
+
+    async def _run_test(self):
+        """Run test asynchronously"""
+        try:
+            await self.start_test()
+        finally:
+            self._test_running = False
 
     async def start_test(self):
         """Start test execution"""

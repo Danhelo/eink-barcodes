@@ -6,7 +6,7 @@ from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QPixmap, QImage
 import logging
 from PIL import Image
-from PIL.ImageQt import ImageQt
+import numpy as np
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,35 @@ class PreviewWidget(QWidget):
 
         self.setLayout(layout)
 
+    def pil_to_pixmap(self, image: Image.Image) -> QPixmap:
+        """Convert PIL Image to QPixmap.
+
+        Args:
+            image: PIL Image to convert
+
+        Returns:
+            QPixmap version of the image
+        """
+        # Convert PIL image to RGB if it isn't
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+
+        # Convert to numpy array
+        data = np.array(image)
+        height, width, channels = data.shape
+
+        # Create QImage from numpy array
+        bytes_per_line = channels * width
+        qimage = QImage(
+            data.data,
+            width,
+            height,
+            bytes_per_line,
+            QImage.Format_RGB888
+        )
+
+        return QPixmap.fromImage(qimage)
+
     def update_preview(self, image: Image.Image):
         """Update preview with new image.
 
@@ -48,9 +77,8 @@ class PreviewWidget(QWidget):
         try:
             self.current_image = image
 
-            # Convert PIL image to QImage
-            qimage = ImageQt(image)
-            pixmap = QPixmap.fromImage(qimage)
+            # Convert PIL image to QPixmap
+            pixmap = self.pil_to_pixmap(image)
 
             # Scale pixmap to fit label while maintaining aspect ratio
             scaled = pixmap.scaled(

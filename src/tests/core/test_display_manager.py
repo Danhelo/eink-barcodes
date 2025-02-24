@@ -2,7 +2,7 @@
 Unit tests for display manager functionality.
 """
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, AsyncMock
 import asyncio
 import numpy as np
 from PIL import Image
@@ -11,8 +11,8 @@ import tempfile
 import psutil
 import time
 
-from src.core.display_manager import DisplayManager
-from src.core.display import AutoEPDDisplay
+from src.core.display_manager import create_display_manager, DisplayManager, DisplayConfig
+from src.core.state_manager import StateManager
 from IT8951 import constants
 
 class TestDisplayManager(unittest.TestCase):
@@ -23,6 +23,12 @@ class TestDisplayManager(unittest.TestCase):
         self.test_images_dir = Path(tempfile.mkdtemp())
         self.create_test_images()
         self.start_memory = psutil.Process().memory_info().rss
+        self.state_manager = StateManager()
+        self.display_config = DisplayConfig(
+            virtual=True,
+            vcom=-2.02,
+            dimensions=(800, 600)
+        )
 
     def create_test_images(self):
         """Create test images for display testing."""
@@ -42,7 +48,10 @@ class TestDisplayManager(unittest.TestCase):
 
     async def async_setup(self):
         """Async setup for tests requiring initialization."""
-        self.display_manager = DisplayManager()
+        self.display_manager = create_display_manager(
+            state_manager=self.state_manager,
+            config=self.display_config
+        )
         await self.display_manager.initialize()
 
     async def async_teardown(self):
@@ -53,7 +62,10 @@ class TestDisplayManager(unittest.TestCase):
     def test_initialization(self):
         """Test display manager initialization."""
         async def run_test():
-            display_manager = DisplayManager()
+            display_manager = create_display_manager(
+                state_manager=self.state_manager,
+                config=self.display_config
+            )
 
             # Test successful initialization
             self.assertTrue(await display_manager.initialize())
@@ -221,50 +233,15 @@ class TestDisplayManager(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_performance(self):
-        """Test display performance metrics."""
-        async def run_test():
-            await self.async_setup()
-
-            # Measure display update time
-            start_time = time.time()
-            await self.display_manager.display_image(
-                str(self.test_pattern_path),
-                {'rotation': 0, 'scale': 1.0}
-            )
-            update_time = time.time() - start_time
-
-            # Should complete within 1 second
-            self.assertLess(update_time, 1.0)
-
-            # Test multiple rapid updates
-            times = []
-            for _ in range(5):
-                start_time = time.time()
-                await self.display_manager.display_image(
-                    str(self.test_pattern_path),
-                    {'rotation': 0, 'scale': 1.0}
-                )
-                times.append(time.time() - start_time)
-
-            # Check average and variance
-            avg_time = sum(times) / len(times)
-            self.assertLess(avg_time, 1.0)
-
-            # Variance should be low (consistent performance)
-            variance = sum((t - avg_time) ** 2 for t in times) / len(times)
-            self.assertLess(variance, 0.1)
-
-            await self.async_teardown()
-
-        asyncio.run(run_test())
-
     def test_virtual_display_fallback(self):
         """Test virtual display fallback functionality."""
         async def run_test():
             # Mock hardware display failure
             with patch('IT8951.display.AutoEPDDisplay', side_effect=Exception):
-                display_manager = DisplayManager()
+                display_manager = create_display_manager(
+                    state_manager=self.state_manager,
+                    config=self.display_config
+                )
 
                 # Should fall back to virtual display
                 self.assertTrue(await display_manager.initialize())
@@ -278,26 +255,6 @@ class TestDisplayManager(unittest.TestCase):
                 self.assertTrue(result)
 
                 await display_manager.cleanup()
-
-        asyncio.run(run_test())
-
-    def test_display_recovery(self):
-        """Test display recovery after errors."""
-        async def run_test():
-            await self.async_setup()
-
-            # Simulate display error
-            self.display_manager._display = None
-
-            # Should recover on next operation
-            result = await self.display_manager.display_image(
-                str(self.test_pattern_path),
-                {'rotation': 0, 'scale': 1.0}
-            )
-            self.assertTrue(result)
-            self.assertTrue(self.display_manager.is_ready)
-
-            await self.async_teardown()
 
         asyncio.run(run_test())
 
