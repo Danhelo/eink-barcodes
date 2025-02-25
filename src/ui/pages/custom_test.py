@@ -14,7 +14,8 @@ from PIL import Image
 from typing import Optional
 
 from .base_test_page import BaseTestPage
-from ...core.test_controller import TestController, TestConfig
+from ...core.test_controller import TestController
+from ...core.test_config import TestConfig
 
 logger = logging.getLogger(__name__)
 
@@ -221,20 +222,20 @@ class CustomTestPage(BaseTestPage):
     def create_test_config(self) -> Optional[TestConfig]:
         """Create test configuration."""
         try:
-            return self.test_controller.create_config(
+            # Save the transformed image to a temporary file if needed
+            image_paths = [self.current_image_path] * self.count_spin.value()
+
+            return TestConfig(
                 barcode_type=self.type_combo.currentText(),
-                image_paths=[self.current_image_path] * self.count_spin.value(),
-                transformations={
-                    "rotation": float(self.rotation_slider.value()),
-                    "scale": self.scale_spin.value(),
-                    "auto_center": self.auto_center.isChecked()
-                },
-                test_params={
-                    "refresh_rate": self.refresh_spin.value()
-                }
+                image_paths=image_paths,
+                rotation=float(self.rotation_slider.value()),
+                scale=self.scale_spin.value(),
+                auto_center=self.auto_center.isChecked(),
+                refresh_rate=self.refresh_spin.value(),
+                count=self.count_spin.value(),
+                delay_between_images=1.0 / self.refresh_spin.value()
             )
         except Exception as e:
             logger.error(f"Failed to create test config: {e}")
             self.handle_error(str(e))
             return None
-

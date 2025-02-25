@@ -8,12 +8,13 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 import logging
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 import asyncio
 from qasync import asyncSlot
 
 from ..widgets.preview import PreviewWidget
-from ...core.test_controller import TestController, TestConfig
+from ...core.test_controller import TestController
+from ...core.test_config import TestConfig
 
 logger = logging.getLogger(__name__)
 
@@ -177,15 +178,21 @@ class BaseTestPage(QWidget):
             self.start_button.setEnabled(False)
             self.stop_button.setEnabled(True)
             self.progress.show()
+            self.progress.setValue(0)
 
-            # Initialize test
-            if not await self.test_controller.initialize_test(config):
-                raise RuntimeError("Failed to initialize test")
+            # Run test
+            results = await self.test_controller.run_test(config)
 
-            # Execute test
-            success = await self.test_controller.execute_test()
-            if not success:
-                raise RuntimeError("Test execution failed")
+            if results.get("success", False):
+                QMessageBox.information(
+                    self,
+                    "Test Completed",
+                    f"Test completed successfully.\n"
+                    f"Processed {results.get('successful_images', 0)}/{results.get('total_images', 0)} images."
+                )
+            else:
+                error_msg = results.get("error", "Unknown error")
+                raise RuntimeError(f"Test failed: {error_msg}")
 
         except Exception as e:
             logger.error(f"Test execution error: {e}")
@@ -196,7 +203,6 @@ class BaseTestPage(QWidget):
             self._test_running = False
             self.start_button.setEnabled(True)
             self.stop_button.setEnabled(False)
-            await self.test_controller.cleanup()
             self.progress.hide()
 
     async def stop_test(self):
@@ -205,10 +211,18 @@ class BaseTestPage(QWidget):
             return
 
         try:
-            await self.test_controller.stop_test()  # This sets the stop flag
-            await self.test_controller.cleanup()    # Clean up resources
+            await self.test_controller.stop_test()
+            self._test_running = False
+            self.start_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+            self.progress.hide()
+
+            QMessageBox.information(
+                self,
+                "Test Stopped",
+                "Test was stopped by user."
+            )
+
         except Exception as e:
             logger.error(f"Failed to stop test: {e}")
             self.handle_error(str(e))
-        finally:
-            self._test_running = False

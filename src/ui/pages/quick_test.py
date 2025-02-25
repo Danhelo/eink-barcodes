@@ -3,7 +3,8 @@ Quick test page implementation.
 """
 from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel,
-    QComboBox, QGroupBox, QPushButton
+    QComboBox, QGroupBox, QPushButton,
+    QSpinBox
 )
 from PyQt5.QtCore import Qt
 import os
@@ -12,7 +13,8 @@ from PIL import Image
 from typing import Optional, List
 
 from .base_test_page import BaseTestPage
-from ...core.test_controller import TestController, TestConfig
+from ...core.test_controller import TestController
+from ...core.test_config import TestConfig
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,23 @@ class QuickTestPage(BaseTestPage):
 
         type_group.setLayout(type_layout)
         layout.addWidget(type_group)
+
+        # Test Configuration
+        config_group = QGroupBox("Test Configuration")
+        config_layout = QVBoxLayout()
+
+        # Number of images to test
+        image_count_layout = QHBoxLayout()
+        image_count_layout.addWidget(QLabel("Number of images to test:"))
+        self.image_count_spinner = QSpinBox()
+        self.image_count_spinner.setMinimum(1)
+        self.image_count_spinner.setMaximum(20)
+        self.image_count_spinner.setValue(5)
+        image_count_layout.addWidget(self.image_count_spinner)
+        config_layout.addLayout(image_count_layout)
+
+        config_group.setLayout(config_layout)
+        layout.addWidget(config_group)
 
         # Preview Area
         preview_group = QGroupBox("Preview")
@@ -160,14 +179,33 @@ class QuickTestPage(BaseTestPage):
         if not self.current_barcodes:
             self.handle_error("No barcodes available for testing")
             return False
+
+        # Check if we have enough images
+        requested_count = self.image_count_spinner.value()
+        available_count = len(self.current_barcodes)
+
+        if requested_count > available_count:
+            self.handle_error(f"Requested {requested_count} images but only {available_count} are available")
+            return False
+
         return True
 
     def create_test_config(self) -> Optional[TestConfig]:
         """Create test configuration."""
         try:
-            return self.test_controller.create_config(
+            # Get the number of images to test
+            count = min(self.image_count_spinner.value(), len(self.current_barcodes))
+
+            # Start from the current index and wrap around if needed
+            image_paths = []
+            for i in range(count):
+                index = (self.current_index + i) % len(self.current_barcodes)
+                image_paths.append(self.current_barcodes[index])
+
+            return TestConfig(
                 barcode_type=self.barcode_combo.currentText(),
-                image_paths=[self.current_barcodes[self.current_index]],
+                image_paths=image_paths,
+                count=count,
                 transformations={
                     "rotation": 0.0,
                     "scale": 1.0,

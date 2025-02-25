@@ -45,6 +45,9 @@ class Application:
             if self.display_manager:
                 await self.display_manager.cleanup()
 
+            if self.test_controller:
+                await self.test_controller.cleanup()
+
             if self.window:
                 self.window.close()
 
@@ -70,20 +73,24 @@ class Application:
 
             # Initialize display manager
             display_config = DisplayConfig(vcom=-2.06)
-            self.display_manager = DisplayManager.create(
-                self.state_manager,
-                display_config
-            )
 
-            if not await self.display_manager.initialize():
-                logger.error("Failed to initialize display")
-                return False
+            # Create and initialize the display manager
+            # DisplayManager.create() returns an already initialized instance
+            display_manager = DisplayManager(
+                state_manager=self.state_manager,
+                config=display_config
+            )
+            await display_manager.initialize()
+            self.display_manager = display_manager
 
             # Initialize test controller
             self.test_controller = TestController(
                 state_manager=self.state_manager,
                 display_manager=self.display_manager
             )
+
+            # Initialize the test controller
+            await self.test_controller.initialize()
 
             # Create main window
             self.window = MainWindow(self.test_controller)
