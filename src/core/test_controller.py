@@ -39,6 +39,30 @@ class TestController:
         self.progress_callback = callback
         logger.debug(f"Progress callback set: {callback}")
 
+    async def _trigger_progress_update(self, progress: float, message: str):
+        """Dedicated method for progress updates with better UI sync.
+        
+        Args:
+            progress: Progress value (0.0-1.0)
+            message: Current status message
+        """
+        if self.progress_callback:
+            logger.debug(f"Triggering progress update: {progress:.2f} - {message}")
+            
+            # Call the progress callback
+            self.progress_callback(progress, message)
+            
+            # Critical: Give the UI enough time to process the update
+            # For Raspberry Pi, we need a longer delay
+            await asyncio.sleep(0.1)
+            
+            # Force an extra event loop iteration
+            await asyncio.sleep(0)
+            
+            # Let the test know we've updated the progress
+            logger.debug(f"Progress update completed: {progress:.2f}")
+
+
     async def initialize(self, virtual: bool = False, vcom: float = -2.06) -> bool:                      
         """Initialize the test controller.                                                               
                                                                                                         
@@ -62,21 +86,25 @@ class TestController:
             self.state_manager.transition_to(TestState.ERROR)
             return False
                                                                                                         
-    async def run_test(self, config: TestConfig) -> Dict[str, Any]:                                      
-        """Run a test with the given configuration.                                                      
-                                                                                                        
-        Args:                                                                                            
-            config: Test configuration                                                                   
-                                                                                                        
-        Returns:                                                                                         
-            Dict[str, Any]: Test results                                                                 
-        """                                                                                              
-        if self.test_running:                                                                            
-            logger.warning("Test already running, cannot start another")                                 
-            return {"success": False, "error": "Test already running"}                                   
-                                                                                                        
-        self.test_running = True                                                                         
-        self.current_test = config                                                                       
+    async def run_test(self, config: TestConfig) -> Dict[str, Any]:
+        """Run a test with the given configuration.
+
+        This method executes a test based on the provided configuration,
+        processes each image, and reports progress through callbacks and
+        state updates.
+        
+        Args:
+            config: Test configuration
+            
+        Returns:
+            Dict[str, Any]: Test results
+        """
+        if self.test_running:
+            logger.warning("Test already running, cannot start another")
+            return {"success": False, "error": "Test already running"}
+        
+        self.test_running = True
+        self.current_test = config
 
         # Create test context
         test_context = TestContext(
@@ -88,15 +116,12 @@ class TestController:
         self.state_manager.transition_to(TestState.RUNNING)
 
         # Initial progress update (0%)
-        if self.progress_callback:
-            self.progress_callback(0.0, "Starting test...")
-            # Add a small delay to ensure UI updates
-            await asyncio.sleep(0.1)
-                                                                                                        
-        try:                                                                                             
-            logger.info(f"Starting test with config: {config}")                                          
-                                                                                                        
-            # Process each image                                                                         
+        await self._trigger_progress_update(0.0, "Starting test...")
+        
+        try:
+            logger.info(f"Starting test with config: {config}")
+            
+            # Process each image
             results = []
             image_paths = config.image_paths if hasattr(config, 'image_paths') else []
             total_images = len(image_paths)
@@ -105,7 +130,6 @@ class TestController:
 
             for i, image_path in enumerate(image_paths):
                 # Calculate progress (0.0 to 1.0)
-                # Use i instead of i+1 to show progress before processing the current image
                 progress = i / total_images if total_images > 0 else 0
 
                 logger.debug(f"Processing image {i+1}/{total_images}: {image_path}")
@@ -120,41 +144,33 @@ class TestController:
                     }
                 )
 
-                # Call progress callback if set
-                if self.progress_callback:
-                    logger.debug(f"Calling progress callback with {progress:.2f}")
-                    self.progress_callback(progress, image_path)
-                    # Add a small delay to ensure UI updates
-                    await asyncio.sleep(0.05)
+                # Update progress before processing
+                await self._trigger_progress_update(progress, image_path)
 
                 # Process the image
                 result = await self._process_image(image_path)
-                results.append(result)                                                                   
-                                                                                                        
-                # Add delay between images if specified                                                  
+                results.append(result)
+                
+                # Add delay between images if specified
                 if hasattr(config, 'delay_between_images') and config.delay_between_images > 0:
                     delay = config.delay_between_images
                     logger.debug(f"Delaying for {delay} seconds between images")
                     await asyncio.sleep(delay)
 
-                # Update progress after processing (for smoother progress updates)
+                # Update progress after processing
                 progress = (i + 1) / total_images if total_images > 0 else 1.0
-                if self.progress_callback:
-                    logger.debug(f"Calling progress callback with {progress:.2f} after processing")
-                    self.progress_callback(progress, f"Processed {image_path}")
-                    # Add a small delay to ensure UI updates
-                    await asyncio.sleep(0.05)
-                                                                                                        
-            # Compile results                                                                            
-            success_count = sum(1 for r in results if r.get("success", False))                           
-            test_results = {                                                                             
-                "success": True,                                                                         
+                await self._trigger_progress_update(progress, f"Processed {image_path}")
+            
+            # Compile results
+            success_count = sum(1 for r in results if r.get("success", False))
+            test_results = {
+                "success": True,
                 "total_images": total_images,
-                "successful_images": success_count,                                                      
-                "image_results": results,                                                                
+                "successful_images": success_count,
+                "image_results": results,
                 "config": vars(config)
-            }                                                                                            
-                                                                                                        
+            }
+            
             self.test_results = test_results
 
             # Update context with final progress
@@ -166,18 +182,14 @@ class TestController:
                 }
             )
 
-            # Call progress callback with completion
-            if self.progress_callback:
-                logger.debug("Calling progress callback with completion (1.0)")
-                self.progress_callback(1.0, "Complete")
-                # Add a small delay to ensure UI updates
-                await asyncio.sleep(0.1)
-                                                                                                        
+            # Final progress update
+            await self._trigger_progress_update(1.0, "Complete")
+                    
             logger.info(f"Test completed: {success_count}/{total_images} images successful")
 
-            return test_results                                                                          
-                                                                                                        
-        except Exception as e:                                                                           
+            return test_results
+            
+        except Exception as e:
             logger.error(f"Test execution failed: {e}")
 
             # Update context with error
@@ -186,9 +198,9 @@ class TestController:
                 {"error": str(e)}
             )
 
-            return {"success": False, "error": str(e)}                                                   
-        finally:                                                                                         
-            self.test_running = False                                                                    
+            return {"success": False, "error": str(e)}
+        finally:
+            self.test_running = False
                                                                                                         
     async def _process_image(self, image_path: str) -> Dict[str, Any]:                                   
         """Process a single image.                                                                       

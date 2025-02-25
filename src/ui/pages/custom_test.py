@@ -150,10 +150,8 @@ class CustomTestPage(BaseTestPage):
         # Controls
         layout.addWidget(self.create_controls_group())
 
-        # Progress bar
-        self.progress = self.create_progress_bar()
-        layout.addWidget(self.progress)
-
+        # Add the progress bar that was created in the parent class
+        self.add_progress_bar_to_layout(layout)
         self.setLayout(layout)
 
     def browse_file(self):
