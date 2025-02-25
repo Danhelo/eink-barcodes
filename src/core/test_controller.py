@@ -1,7 +1,7 @@
 import logging                                                                                           
 import asyncio                                                                                           
 import os                                                                                                
-from typing import List, Dict, Any, Optional, Union                                                      
+from typing import List, Dict, Any, Optional, Union, Callable
 from PIL import Image                                                                                    
 import time                                                                                              
                                                                                                         
@@ -9,7 +9,8 @@ from .display_manager import BaseDisplayManager, DisplayManager
 from .state_manager import StateManager, TestState, TestContext
 from .test_config import TestConfig                                                                      
                                                                                                         
-logger = logging.getLogger(__name__)                                                                     
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)  # Set to DEBUG level to see progress updates
                                                                                                         
 class TestController:                                                                                    
     """Controls test execution and manages display."""                                                   
@@ -26,8 +27,18 @@ class TestController:
         self.state_manager = state_manager or StateManager()
         self.current_test = None                                                                         
         self.test_running = False                                                                        
-        self.test_results = {}                                                                           
+        self.test_results = {}
+        self.progress_callback = None
                                                                                                         
+    def set_progress_callback(self, callback: Callable[[float, str], None]):
+        """Set a callback function to be called when progress updates.
+
+        Args:
+            callback: Function that takes progress (0.0-1.0) and current image path
+        """
+        self.progress_callback = callback
+        logger.debug(f"Progress callback set: {callback}")
+
     async def initialize(self, virtual: bool = False, vcom: float = -2.06) -> bool:                      
         """Initialize the test controller.                                                               
                                                                                                         
@@ -74,7 +85,13 @@ class TestController:
             total_images=len(config.image_paths) if hasattr(config, 'image_paths') else 0
         )
         self.state_manager.set_context(test_context)
-        self.state_manager.transition_to(TestState.RUNNING)                                                  
+        self.state_manager.transition_to(TestState.RUNNING)
+
+        # Initial progress update (0%)
+        if self.progress_callback:
+            self.progress_callback(0.0, "Starting test...")
+            # Add a small delay to ensure UI updates
+            await asyncio.sleep(0.1)
                                                                                                         
         try:                                                                                             
             logger.info(f"Starting test with config: {config}")                                          
@@ -84,23 +101,49 @@ class TestController:
             image_paths = config.image_paths if hasattr(config, 'image_paths') else []
             total_images = len(image_paths)
 
+            logger.debug(f"Processing {total_images} images")
+
             for i, image_path in enumerate(image_paths):
+                # Calculate progress (0.0 to 1.0)
+                # Use i instead of i+1 to show progress before processing the current image
+                progress = i / total_images if total_images > 0 else 0
+
+                logger.debug(f"Processing image {i+1}/{total_images}: {image_path}")
+
                 # Update context with current progress
                 self.state_manager.update_state(
                     TestState.RUNNING,
                     {
                         "current_image": image_path,
                         "processed_images": i,
-                        "progress": (i / total_images) if total_images > 0 else 0
+                        "progress": progress
                     }
                 )
 
-                result = await self._process_image(image_path)                                           
+                # Call progress callback if set
+                if self.progress_callback:
+                    logger.debug(f"Calling progress callback with {progress:.2f}")
+                    self.progress_callback(progress, image_path)
+                    # Add a small delay to ensure UI updates
+                    await asyncio.sleep(0.05)
+
+                # Process the image
+                result = await self._process_image(image_path)
                 results.append(result)                                                                   
                                                                                                         
                 # Add delay between images if specified                                                  
                 if hasattr(config, 'delay_between_images') and config.delay_between_images > 0:
-                    await asyncio.sleep(config.delay_between_images)                                     
+                    delay = config.delay_between_images
+                    logger.debug(f"Delaying for {delay} seconds between images")
+                    await asyncio.sleep(delay)
+
+                # Update progress after processing (for smoother progress updates)
+                progress = (i + 1) / total_images if total_images > 0 else 1.0
+                if self.progress_callback:
+                    logger.debug(f"Calling progress callback with {progress:.2f} after processing")
+                    self.progress_callback(progress, f"Processed {image_path}")
+                    # Add a small delay to ensure UI updates
+                    await asyncio.sleep(0.05)
                                                                                                         
             # Compile results                                                                            
             success_count = sum(1 for r in results if r.get("success", False))                           
@@ -122,6 +165,13 @@ class TestController:
                     "progress": 1.0
                 }
             )
+
+            # Call progress callback with completion
+            if self.progress_callback:
+                logger.debug("Calling progress callback with completion (1.0)")
+                self.progress_callback(1.0, "Complete")
+                # Add a small delay to ensure UI updates
+                await asyncio.sleep(0.1)
                                                                                                         
             logger.info(f"Test completed: {success_count}/{total_images} images successful")
 

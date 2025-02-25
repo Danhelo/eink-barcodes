@@ -3,10 +3,10 @@ Base test page implementation.
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QProgressBar,
+    QPushButton, QLabel, QProgressBar, QApplication,
     QGroupBox, QMessageBox
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal
 import logging
 from typing import Optional, Tuple, Dict, Any
 import asyncio
@@ -15,13 +15,18 @@ from qasync import asyncSlot
 from ..widgets.preview import PreviewWidget
 from ...core.test_controller import TestController
 from ...core.test_config import TestConfig
+from ...core.state_manager import StateObserver, TestState
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)  # Set to DEBUG level to see progress updates
 
-class BaseTestPage(QWidget):
+class BaseTestPage(QWidget, StateObserver):
     """Base class for test pages."""
 
     page_title = "Test Page"
+
+    # Define a signal for progress updates
+    progress_updated = pyqtSignal(int, str)
 
     def __init__(self, parent=None, test_controller: Optional[TestController] = None):
         """Initialize BaseTestPage.
@@ -30,10 +35,23 @@ class BaseTestPage(QWidget):
             parent: Parent widget (should be MainWindow)
             test_controller: Test controller instance
         """
-        super().__init__(parent)
+        QWidget.__init__(self, parent)
+        StateObserver.__init__(self)
         self.test_controller = test_controller
         self.main_window = parent
         self._test_running = False
+        self._last_progress_value = 0  # Track last progress value to prevent jumps
+
+        # Connect the progress signal to the update slot
+        self.progress_updated.connect(self._update_progress_ui)
+
+        # Register as observer if test_controller is available
+        if self.test_controller and self.test_controller.state_manager:
+            self.test_controller.state_manager.add_observer(self)
+
+            # Register direct progress callback
+            if hasattr(self.test_controller, 'set_progress_callback'):
+                self.test_controller.set_progress_callback(self.update_progress_direct)
 
     def setup_base_ui(self) -> Tuple[QVBoxLayout, QHBoxLayout]:
         """Set up base UI elements.
@@ -98,6 +116,11 @@ class BaseTestPage(QWidget):
         progress = QProgressBar()
         progress.setTextVisible(True)
         progress.setAlignment(Qt.AlignCenter)
+        progress.setMinimumHeight(30)
+        progress.setFixedHeight(30)
+        progress.setFormat("%p%")  # Default format
+        progress.setRange(0, 100)  # Ensure range is set correctly
+        progress.setValue(0)       # Initialize to 0
         progress.hide()
         return progress
 
@@ -173,15 +196,33 @@ class BaseTestPage(QWidget):
             return
 
         try:
+            # Reset progress tracking
+            self._last_progress_value = 0
+
             # Update UI
             self._test_running = True
             self.start_button.setEnabled(False)
             self.stop_button.setEnabled(True)
+            self.progress.setValue(0)  # Reset to 0
+            self.progress.setFormat("0% - Starting test...")
             self.progress.show()
-            self.progress.setValue(0)
+            self.progress.setVisible(True)
+            self.progress.repaint()  # Force immediate repaint
+
+            # Process pending events to ensure UI updates
+            QApplication.processEvents()
+
+            # Add a small delay to ensure the UI updates before test starts
+            await asyncio.sleep(0.1)
 
             # Run test
             results = await self.test_controller.run_test(config)
+
+            # Ensure progress bar shows 100% at completion
+            self.progress.setValue(100)
+            self.progress.setFormat("100% - Complete")
+            self.progress.repaint()
+            QApplication.processEvents()
 
             if results.get("success", False):
                 QMessageBox.information(
@@ -226,3 +267,91 @@ class BaseTestPage(QWidget):
         except Exception as e:
             logger.error(f"Failed to stop test: {e}")
             self.handle_error(str(e))
+
+    def update_progress_direct(self, progress: float, current_image: str):
+        """Direct callback for progress updates.
+
+        This method is called directly from the test controller.
+
+        Args:
+            progress: Progress value (0.0-1.0)
+            current_image: Current image being processed
+        """
+        try:
+            # Calculate percentage
+            progress_value = int(progress * 100)
+
+            # Log the progress update
+            logger.debug(f"Progress update received: {progress_value}% - {current_image}")
+
+            # Validate progress value to prevent jumps
+            if progress_value < self._last_progress_value and progress_value != 0:
+                logger.warning(f"Progress decreased from {self._last_progress_value}% to {progress_value}%, ignoring")
+                return
+
+            # Update last progress value
+            self._last_progress_value = progress_value
+
+            # Emit the signal to update the UI in the main thread
+            self.progress_updated.emit(progress_value, current_image)
+
+        except Exception as e:
+            logger.error(f"Error in progress callback: {e}")
+
+    @pyqtSlot(int, str)
+    def _update_progress_ui(self, progress_value: int, current_image: str):
+        """Update the progress bar UI.
+
+        This slot is connected to the progress_updated signal and runs in the UI thread.
+
+        Args:
+            progress_value: Progress value (0-100)
+            current_image: Current image being processed
+        """
+        try:
+            if not hasattr(self, 'progress'):
+                logger.warning("Progress bar not found")
+                return
+
+            # Log the UI update
+            logger.debug(f"Updating progress UI: {progress_value}% - {current_image}")
+
+            # Set the value
+            self.progress.setValue(progress_value)
+
+            # Format text with current image if available
+            if current_image:
+                image_name = current_image.split('/')[-1] if '/' in current_image else current_image  # Get just the filename
+                self.progress.setFormat(f"{progress_value}% - Processing {image_name}")
+            else:
+                self.progress.setFormat(f"{progress_value}%")
+
+            # Force the progress bar to update visually
+            self.progress.repaint()
+            QApplication.processEvents()  # Process pending UI events
+
+        except Exception as e:
+            logger.error(f"Error updating progress bar UI: {e}")
+
+    def on_state_changed(self, new_state: TestState, context: Optional[Dict] = None):
+        """Called when test state changes.
+
+        Overrides StateObserver.on_state_changed to update the progress bar.
+        """
+        # Call parent method to update internal state
+        super().on_state_changed(new_state, context)
+
+        # Log state change
+        logger.debug(f"State changed to {new_state} with context: {context}")
+
+        # We're now using the direct callback approach, but we'll keep this as a backup
+        # Update progress bar if context contains progress information
+        if context and 'progress' in context and hasattr(self, 'progress'):
+            progress_value = int(context['progress'] * 100)
+            current_image = context.get('current_image', '')
+
+            # Log the state-based progress update
+            logger.debug(f"State-based progress update: {progress_value}% - {current_image}")
+
+            # Use the signal to update the UI in the main thread
+            self.progress_updated.emit(progress_value, current_image)

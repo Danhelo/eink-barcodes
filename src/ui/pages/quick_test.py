@@ -66,6 +66,16 @@ class QuickTestPage(BaseTestPage):
         image_count_layout.addWidget(self.image_count_spinner)
         config_layout.addLayout(image_count_layout)
 
+        # Add delay between images
+        delay_layout = QHBoxLayout()
+        delay_layout.addWidget(QLabel("Delay between images (seconds):"))
+        self.delay_spinner = QSpinBox()
+        self.delay_spinner.setMinimum(0)
+        self.delay_spinner.setMaximum(10)
+        self.delay_spinner.setValue(1)
+        delay_layout.addWidget(self.delay_spinner)
+        config_layout.addLayout(delay_layout)
+
         config_group.setLayout(config_layout)
         layout.addWidget(config_group)
 
@@ -206,6 +216,7 @@ class QuickTestPage(BaseTestPage):
                 barcode_type=self.barcode_combo.currentText(),
                 image_paths=image_paths,
                 count=count,
+                delay_between_images=self.delay_spinner.value(),
                 transformations={
                     "rotation": 0.0,
                     "scale": 1.0,
