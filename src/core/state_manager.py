@@ -12,6 +12,8 @@ class TestState(Enum):
     COMPLETED = auto()
     FAILED = auto()
     STOPPED = auto()
+    ERROR = auto()  # Added ERROR state to match test_controller.py
+    READY = auto()  # Added READY state to match test_controller.py
 
 class DisplayState(Enum):
     """Display hardware states"""
@@ -53,7 +55,7 @@ class StateManager(QObject):
 
     def __init__(self):
         super().__init__()
-        self._test_state = TestState.NOT_STARTED
+        self._test_state = TestState.IDLE  # Start in IDLE state
         self._display_state = DisplayState.DISCONNECTED
         self._context: Optional[TestContext] = None
         self._observers: List[StateObserver] = []
@@ -100,6 +102,11 @@ class StateManager(QObject):
 
             self._notify_test_state()
 
+    # Add transition_to method for compatibility with test_controller.py
+    def transition_to(self, new_state: TestState, context_updates: Dict[str, Any] = None):
+        """Alias for update_state to maintain compatibility"""
+        self.update_state(new_state, context_updates)
+
     def update_display_state(self, new_state: DisplayState):
         """Update display state and notify observers"""
         if new_state != self._display_state:
@@ -111,14 +118,20 @@ class StateManager(QObject):
         # Define valid transitions
         valid_transitions = {
             TestState.NOT_STARTED: [TestState.IDLE],
-            TestState.IDLE: [TestState.INITIALIZING],
-            TestState.INITIALIZING: [TestState.RUNNING, TestState.FAILED],
-            TestState.RUNNING: [TestState.PAUSED, TestState.COMPLETED, TestState.FAILED, TestState.STOPPED],
+            TestState.IDLE: [TestState.INITIALIZING, TestState.READY],  # Added READY
+            TestState.INITIALIZING: [TestState.RUNNING, TestState.FAILED, TestState.READY],  # Added READY
+            TestState.READY: [TestState.RUNNING, TestState.IDLE],  # Added READY transitions
+            TestState.RUNNING: [TestState.PAUSED, TestState.COMPLETED, TestState.FAILED, TestState.STOPPED, TestState.ERROR],  # Added ERROR
             TestState.PAUSED: [TestState.RUNNING, TestState.STOPPED],
             TestState.COMPLETED: [TestState.IDLE],
             TestState.FAILED: [TestState.IDLE],
-            TestState.STOPPED: [TestState.IDLE]
+            TestState.STOPPED: [TestState.IDLE],
+            TestState.ERROR: [TestState.IDLE]  # Added ERROR transition
         }
+
+        # If no valid transitions defined or all transitions allowed, permit the change
+        if self._test_state not in valid_transitions:
+            return True
 
         return new_state in valid_transitions.get(self._test_state, [])
 

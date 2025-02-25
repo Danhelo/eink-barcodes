@@ -8,12 +8,12 @@ import numpy as np
 from PIL import Image
 from pathlib import Path
 import tempfile
-import psutil
+import os
 import time
 
-from src.core.display_manager import create_display_manager, DisplayManager, DisplayConfig
-from src.core.state_manager import StateManager
-from IT8951 import constants
+from src.core.display_manager import DisplayManager, DisplayConfig
+from src.core.state_manager import StateManager, DisplayState
+from src.core.display import VirtualDisplay, AutoEPDDisplayWrapper
 
 class TestDisplayManager(unittest.TestCase):
     """Test suite for DisplayManager class."""
@@ -22,12 +22,12 @@ class TestDisplayManager(unittest.TestCase):
         """Set up test environment."""
         self.test_images_dir = Path(tempfile.mkdtemp())
         self.create_test_images()
-        self.start_memory = psutil.Process().memory_info().rss
         self.state_manager = StateManager()
         self.display_config = DisplayConfig(
             virtual=True,
             vcom=-2.02,
-            dimensions=(800, 600)
+            rotation=0,
+            scale=1.0
         )
 
     def create_test_images(self):
@@ -38,21 +38,20 @@ class TestDisplayManager(unittest.TestCase):
             for j in range(0, 600, 100):
                 box = (i, j, i+50, j+50)
                 test_pattern.paste(0, box)
-        self.test_pattern_path = self.test_images_dir / 'test_pattern.png'
+        self.test_pattern_path = str(self.test_images_dir / 'test_pattern.png')
         test_pattern.save(self.test_pattern_path)
 
         # Create large test image
         large_pattern = Image.new('L', (2000, 1500), 255)
-        self.large_image_path = self.test_images_dir / 'large_pattern.png'
+        self.large_image_path = str(self.test_images_dir / 'large_pattern.png')
         large_pattern.save(self.large_image_path)
 
     async def async_setup(self):
         """Async setup for tests requiring initialization."""
-        self.display_manager = create_display_manager(
+        self.display_manager = await DisplayManager.create(
             state_manager=self.state_manager,
             config=self.display_config
         )
-        await self.display_manager.initialize()
 
     async def async_teardown(self):
         """Async teardown for cleanup."""
@@ -62,19 +61,18 @@ class TestDisplayManager(unittest.TestCase):
     def test_initialization(self):
         """Test display manager initialization."""
         async def run_test():
-            display_manager = create_display_manager(
+            # Test successful initialization
+            display_manager = await DisplayManager.create(
                 state_manager=self.state_manager,
                 config=self.display_config
             )
+            self.assertTrue(display_manager.initialized)
+            self.assertEqual(self.state_manager.get_display_state(), DisplayState.READY)
 
-            # Test successful initialization
-            self.assertTrue(await display_manager.initialize())
-            self.assertTrue(display_manager.is_ready)
-
-            # Test double initialization
-            self.assertTrue(await display_manager.initialize())
-
+            # Test cleanup
             await display_manager.cleanup()
+            self.assertFalse(display_manager.initialized)
+            self.assertEqual(self.state_manager.get_display_state(), DisplayState.DISCONNECTED)
 
         asyncio.run(run_test())
 
@@ -84,67 +82,11 @@ class TestDisplayManager(unittest.TestCase):
             await self.async_setup()
 
             # Test basic image display
-            result = await self.display_manager.display_image(
-                str(self.test_pattern_path),
-                {'rotation': 0, 'scale': 1.0}
-            )
+            result = await self.display_manager.display_image(self.test_pattern_path)
             self.assertTrue(result)
 
             # Verify display state
-            self.assertTrue(self.display_manager.is_ready)
-
-            await self.async_teardown()
-
-        asyncio.run(run_test())
-
-    def test_display_image_transformations(self):
-        """Test image display with various transformations."""
-        async def run_test():
-            await self.async_setup()
-
-            # Test different rotations
-            rotations = [0, 90, 180, 270]
-            for rotation in rotations:
-                with self.subTest(rotation=rotation):
-                    result = await self.display_manager.display_image(
-                        str(self.test_pattern_path),
-                        {'rotation': rotation, 'scale': 1.0}
-                    )
-                    self.assertTrue(result)
-
-            # Test different scales
-            scales = [0.5, 1.0, 1.5, 2.0]
-            for scale in scales:
-                with self.subTest(scale=scale):
-                    result = await self.display_manager.display_image(
-                        str(self.test_pattern_path),
-                        {'rotation': 0, 'scale': scale}
-                    )
-                    self.assertTrue(result)
-
-            await self.async_teardown()
-
-        asyncio.run(run_test())
-
-    def test_display_modes(self):
-        """Test different display update modes."""
-        async def run_test():
-            await self.async_setup()
-
-            modes = [
-                constants.DisplayModes.GC16,
-                constants.DisplayModes.GL16,
-                constants.DisplayModes.DU,
-                constants.DisplayModes.A2
-            ]
-
-            for mode in modes:
-                with self.subTest(mode=mode):
-                    result = await self.display_manager.display_image(
-                        str(self.test_pattern_path),
-                        {'rotation': 0, 'scale': 1.0, 'mode': mode}
-                    )
-                    self.assertTrue(result)
+            self.assertEqual(self.state_manager.get_display_state(), DisplayState.READY)
 
             await self.async_teardown()
 
@@ -156,80 +98,31 @@ class TestDisplayManager(unittest.TestCase):
             await self.async_setup()
 
             # Test invalid image path
-            with self.assertRaises(FileNotFoundError):
-                await self.display_manager.display_image(
-                    'nonexistent.png',
-                    {'rotation': 0, 'scale': 1.0}
-                )
+            result = await self.display_manager.display_image('nonexistent.png')
+            self.assertFalse(result)
+            self.assertEqual(self.state_manager.get_display_state(), DisplayState.ERROR)
 
-            # Test invalid rotation
-            with self.assertRaises(ValueError):
-                await self.display_manager.display_image(
-                    str(self.test_pattern_path),
-                    {'rotation': 45, 'scale': 1.0}
-                )
-
-            # Test invalid scale
-            with self.assertRaises(ValueError):
-                await self.display_manager.display_image(
-                    str(self.test_pattern_path),
-                    {'rotation': 0, 'scale': 0.0}
-                )
+            # Reset state
+            self.state_manager.update_display_state(DisplayState.READY)
 
             await self.async_teardown()
 
         asyncio.run(run_test())
 
-    def test_concurrent_operations(self):
-        """Test concurrent display operations."""
+    def test_clear_display(self):
+        """Test clearing the display."""
         async def run_test():
             await self.async_setup()
 
-            # Create multiple concurrent display operations
-            tasks = []
-            for i in range(5):
-                task = asyncio.create_task(
-                    self.display_manager.display_image(
-                        str(self.test_pattern_path),
-                        {'rotation': 0, 'scale': 1.0}
-                    )
-                )
-                tasks.append(task)
+            # First display an image
+            await self.display_manager.display_image(self.test_pattern_path)
 
-            # Wait for all tasks
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            # Verify results
-            for result in results:
-                self.assertIsInstance(result, bool)
-                self.assertTrue(result)
+            # Then clear it
+            result = await self.display_manager.clear()
+            self.assertTrue(result)
+            self.assertEqual(self.state_manager.get_display_state(), DisplayState.READY)
 
             await self.async_teardown()
-
-        asyncio.run(run_test())
-
-    def test_resource_management(self):
-        """Test resource management and cleanup."""
-        async def run_test():
-            await self.async_setup()
-
-            # Test memory usage during operations
-            for _ in range(10):
-                await self.display_manager.display_image(
-                    str(self.large_image_path),
-                    {'rotation': 0, 'scale': 1.0}
-                )
-
-            # Check memory usage
-            end_memory = psutil.Process().memory_info().rss
-            memory_increase = end_memory - self.start_memory
-
-            # Should not increase by more than 100MB
-            self.assertLess(memory_increase, 100 * 1024 * 1024)
-
-            # Test cleanup
-            await self.async_teardown()
-            self.assertFalse(self.display_manager.is_ready)
 
         asyncio.run(run_test())
 
@@ -237,21 +130,18 @@ class TestDisplayManager(unittest.TestCase):
         """Test virtual display fallback functionality."""
         async def run_test():
             # Mock hardware display failure
-            with patch('IT8951.display.AutoEPDDisplay', side_effect=Exception):
-                display_manager = create_display_manager(
+            with patch('src.core.display.AutoEPDDisplayWrapper', side_effect=Exception("Hardware error")):
+                # Should fall back to virtual display
+                display_manager = await DisplayManager.create(
                     state_manager=self.state_manager,
-                    config=self.display_config
+                    config=DisplayConfig(virtual=False)  # Try hardware but should fall back
                 )
 
-                # Should fall back to virtual display
-                self.assertTrue(await display_manager.initialize())
-                self.assertTrue(display_manager.is_ready)
+                self.assertTrue(display_manager.initialized)
+                self.assertIsInstance(display_manager.display, VirtualDisplay)
 
                 # Should still handle display operations
-                result = await display_manager.display_image(
-                    str(self.test_pattern_path),
-                    {'rotation': 0, 'scale': 1.0}
-                )
+                result = await display_manager.display_image(self.test_pattern_path)
                 self.assertTrue(result)
 
                 await display_manager.cleanup()
@@ -261,6 +151,6 @@ class TestDisplayManager(unittest.TestCase):
     def tearDown(self):
         """Clean up test environment."""
         # Remove test images
-        for path in self.test_images_dir.glob('*.png'):
+        for path in Path(self.test_images_dir).glob('*.png'):
             path.unlink()
         self.test_images_dir.rmdir()

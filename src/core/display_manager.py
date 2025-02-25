@@ -1,136 +1,247 @@
-from abc import ABC, abstractmethod
-import logging
-from typing import Optional, Tuple
-import numpy as np
-from PIL import Image
-from IT8951.display import AutoEPDDisplay
+import logging                                                                                            
+import asyncio                                                                                            
+from PIL import Image                                                                                     
+import os                                                                                                 
+from typing import Optional, List, Dict, Any, Union                                                       
+                                                                                                        
+from src.core.display import VirtualDisplay, AutoEPDDisplayWrapper
 from .state_manager import StateManager, DisplayState
-
-logger = logging.getLogger(__name__)
-
-class DisplayConfig:
-    """Display configuration settings"""
-    def __init__(self, vcom: float = -2.06):
-        self.vcom = vcom
-        self.rotation = 0
-        self.scale = 1.0
-
-class BaseDisplayManager(ABC):
-    """Abstract base class for display management"""
-
-    @abstractmethod
-    async def initialize(self) -> bool:
-        """Initialize the display"""
-        pass
-
-    @abstractmethod
-    async def cleanup(self):
-        """Clean up display resources"""
-        pass
-
-    @abstractmethod
-    async def display_image(self, image: Image.Image) -> bool:
-        """Display an image"""
-        pass
-
-    @abstractmethod
-    async def clear(self) -> bool:
-        """Clear the display"""
-        pass
-
-class EPDDisplayManager(BaseDisplayManager):
-    """Concrete implementation for IT8951 E-Paper display"""
-
-    def __init__(self, state_manager: StateManager, config: Optional[DisplayConfig] = None):
-        self.state_manager = state_manager
+                                                                                                        
+logger = logging.getLogger(__name__)                                                                      
+                                                                                                        
+class DisplayConfig:                                                                                      
+    """Configuration for display operations."""                                                           
+                                                                                                        
+    def __init__(self,                                                                                    
+                virtual: bool = False,                                                                   
+                vcom: float = -2.06,                                                                     
+                rotation: int = 0,                                                                       
+                scale: float = 1.0,                                                                      
+                mirror: bool = False):                                                                   
+        """Initialize display configuration.                                                              
+                                                                                                        
+        Args:                                                                                             
+            virtual: Whether to use virtual display                                                       
+            vcom: VCOM value for e-ink display                                                            
+            rotation: Rotation angle in degrees (0, 90, 180, 270)                                         
+            scale: Scale factor for images                                                                
+            mirror: Whether to mirror images horizontally                                                 
+        """                                                                                               
+        self.virtual = virtual                                                                            
+        self.vcom = vcom                                                                                  
+        self.rotation = rotation                                                                          
+        self.scale = scale                                                                                
+        self.mirror = mirror                                                                              
+                                                                                                        
+                                                                                                        
+class BaseDisplayManager:                                                                                 
+    """Base class for display managers."""                                                                
+                                                                                                        
+    async def initialize(self) -> bool:                                                                   
+        """Initialize the display."""                                                                     
+        raise NotImplementedError                                                                         
+                                                                                                        
+    async def display_image(self, image_path: str) -> bool:                                               
+        """Display an image on the e-ink display."""                                                      
+        raise NotImplementedError                                                                         
+                                                                                                        
+    async def clear(self) -> bool:                                                                        
+        """Clear the display."""                                                                          
+        raise NotImplementedError                                                                         
+                                                                                                        
+    async def cleanup(self) -> bool:                                                                      
+        """Clean up resources."""                                                                         
+        raise NotImplementedError                                                                         
+                                                                                                        
+                                                                                                        
+class DisplayManager(BaseDisplayManager):                                                                 
+    """Manages the e-ink display and image processing."""                                                 
+                                                                                                        
+    def __init__(self, state_manager: Optional[StateManager] = None, config: Optional[DisplayConfig] = None):
+        """Initialize the display manager.                                                                
+                                                                                                        
+        Args:                                                                                             
+            state_manager: Optional state manager for updating display state
+            config: Optional display configuration
+        """                                                                                               
         self.config = config or DisplayConfig()
-        self.display: Optional[AutoEPDDisplay] = None
-        self.dimensions: Optional[Tuple[int, int]] = None
-        logger.info("EPD Display Manager initialized with VCOM %.2f", self.config.vcom)
+        self.state_manager = state_manager
+        self.display = None                                                                               
+        self.initialized = False                                                                          
+        logger.info(f"EPD Display Manager initialized with VCOM {self.config.vcom}")
+                                                                                                        
+    async def initialize(self) -> bool:                                                                   
+        """Initialize the display.                                                                        
+                                                                                                        
+        Returns:                                                                                          
+            bool: True if initialization was successful                                                   
+        """                                                                                               
+        if self.initialized:                                                                              
+            return True                                                                                   
 
-    async def initialize(self) -> bool:
-        """Initialize the IT8951 display"""
-        try:
+        if self.state_manager:
             self.state_manager.update_display_state(DisplayState.INITIALIZING)
-            self.display = AutoEPDDisplay(vcom=self.config.vcom)
-            self.dimensions = (self.display.width, self.display.height)
-            self.state_manager.update_display_state(DisplayState.READY)
-            logger.info("Display initialized successfully: %dx%d", *self.dimensions)
-            return True
-        except Exception as e:
-            self.state_manager.update_display_state(DisplayState.ERROR)
-            logger.error("Failed to initialize display: %s", str(e))
-            return False
+                                                                                                        
+        try:                                                                                              
+            if self.config.virtual:
+                self.display = VirtualDisplay()                                                           
+            else:                                                                                         
+                try:                                                                                      
+                    from IT8951.display import AutoEPDDisplay                                             
+                    epd = AutoEPDDisplay(vcom=self.config.vcom)
+                    self.display = AutoEPDDisplayWrapper(epd)                                             
+                except ImportError:                                                                       
+                    logger.warning("IT8951 module not found, falling back to virtual display")            
+                    self.display = VirtualDisplay()                                                       
+                except Exception as e:                                                                    
+                    logger.error(f"Failed to initialize hardware display: {e}")                           
+                    logger.warning("Falling back to virtual display")                                     
+                    self.display = VirtualDisplay()                                                       
+                                                                                                        
+            self.initialized = True                                                                       
+            logger.info(f"Display initialized successfully: {self.display.width}x{self.display.height}")
 
-    async def cleanup(self):
-        """Clean up display resources"""
-        try:
-            if self.display:
-                # Add any necessary cleanup for IT8951
-                self.display = None
-            self.state_manager.update_display_state(DisplayState.DISCONNECTED)
-            logger.info("Display cleaned up successfully")
-        except Exception as e:
-            logger.error("Error during display cleanup: %s", str(e))
+            if self.state_manager:
+                self.state_manager.update_display_state(DisplayState.READY)
 
-    async def display_image(self, image: Image.Image) -> bool:
-        """Display an image on the EPD"""
-        if not self.display or self.state_manager.get_display_state() != DisplayState.READY:
-            logger.error("Display not ready")
-            return False
+            return True                                                                                   
+        except Exception as e:                                                                            
+            logger.error(f"Failed to initialize display: {e}")
 
-        try:
+            if self.state_manager:
+                self.state_manager.update_display_state(DisplayState.ERROR)
+
+            return False                                                                                  
+                                                                                                        
+    async def display_image(self, image_path: str) -> bool:                                               
+        """Display an image on the e-ink display.                                                         
+                                                                                                        
+        Args:                                                                                             
+            image_path: Path to the image file                                                            
+                                                                                                        
+        Returns:                                                                                          
+            bool: True if display was successful                                                          
+        """                                                                                               
+        if not self.initialized:                                                                          
+            if not await self.initialize():                                                               
+                logger.error("Failed to initialize display")                                              
+                return False                                                                              
+
+        if self.state_manager:
             self.state_manager.update_display_state(DisplayState.BUSY)
+                                                                                                        
+        try:                                                                                              
+            # Check if file exists                                                                        
+            if not os.path.exists(image_path):                                                            
+                logger.error(f"Image file not found: {image_path}")
 
-            # Apply transformations
-            if self.config.rotation:
-                image = image.rotate(self.config.rotation, expand=True)
-            if self.config.scale != 1.0:
-                new_size = tuple(int(dim * self.config.scale) for dim in image.size)
-                image = image.resize(new_size, Image.Resampling.LANCZOS)
+                if self.state_manager:
+                    self.state_manager.update_display_state(DisplayState.ERROR)
 
-            # Convert to grayscale if needed
-            if image.mode != 'L':
-                image = image.convert('L')
+                return False                                                                              
+                                                                                                        
+            # Load and process image                                                                      
+            image = Image.open(image_path).convert('L')  # Convert to grayscale                           
+            logger.info(f"Loaded image {image_path}: {image.width}x{image.height}")                       
+                                                                                                        
+            # Display the image                                                                           
+            result = self.display.display_image(image)                                                    
+            if not result:                                                                                
+                logger.error(f"Failed to display image: {image_path}")
 
-            # Center the image
-            display_width, display_height = self.dimensions
-            image_width, image_height = image.size
-            x = (display_width - image_width) // 2
-            y = (display_height - image_height) // 2
+                if self.state_manager:
+                    self.state_manager.update_display_state(DisplayState.ERROR)
 
-            # Display the image
-            self.display.display_image(image, xy=(x, y))
-            self.state_manager.update_display_state(DisplayState.READY)
-            return True
+                return False                                                                              
 
-        except Exception as e:
-            self.state_manager.update_display_state(DisplayState.ERROR)
-            logger.error("Error displaying image: %s", str(e))
-            return False
+            if self.state_manager:
+                self.state_manager.update_display_state(DisplayState.READY)
+                                                                                                        
+            return True                                                                                   
+        except Exception as e:                                                                            
+            logger.error(f"Error displaying image: {e}")
 
-    async def clear(self) -> bool:
-        """Clear the display"""
-        if not self.display or self.state_manager.get_display_state() != DisplayState.READY:
-            logger.error("Display not ready")
-            return False
+            if self.state_manager:
+                self.state_manager.update_display_state(DisplayState.ERROR)
 
-        try:
+            return False                                                                                  
+                                                                                                        
+    async def clear(self) -> bool:                                                                        
+        """Clear the display.                                                                             
+                                                                                                        
+        Returns:                                                                                          
+            bool: True if clearing was successful                                                         
+        """                                                                                               
+        if not self.initialized:                                                                          
+            logger.warning("Display not initialized, nothing to clear")                                   
+            return False                                                                                  
+
+        if self.state_manager:
             self.state_manager.update_display_state(DisplayState.BUSY)
-            self.display.clear()
-            self.state_manager.update_display_state(DisplayState.READY)
-            return True
-        except Exception as e:
-            self.state_manager.update_display_state(DisplayState.ERROR)
-            logger.error("Error clearing display: %s", str(e))
-            return False
+                                                                                                        
+        try:                                                                                              
+            result = self.display.clear()
 
-# Factory function to create the appropriate display manager
-def create_display_manager(state_manager: StateManager, config: Optional[DisplayConfig] = None) -> BaseDisplayManager:
-    """Create appropriate display manager based on environment"""
-    try:
-        # Try to create EPD display manager
-        return EPDDisplayManager(state_manager, config)
-    except Exception as e:
-        logger.error("Failed to create EPD display manager: %s", str(e))
-        raise
+            if self.state_manager:
+                self.state_manager.update_display_state(DisplayState.READY)
+
+            return result                                                                                 
+        except Exception as e:                                                                            
+            logger.error(f"Error clearing display: {e}")
+
+            if self.state_manager:
+                self.state_manager.update_display_state(DisplayState.ERROR)
+
+            return False                                                                                  
+                                                                                                        
+    async def cleanup(self) -> bool:                                                                      
+        """Clean up resources.                                                                            
+                                                                                                        
+        Returns:                                                                                          
+            bool: True if cleanup was successful                                                          
+        """                                                                                               
+        if not self.initialized:                                                                          
+            return True                                                                                   
+                                                                                                        
+        try:                                                                                              
+            # Clear the display before cleanup                                                            
+            await self.clear()                                                                            
+                                                                                                        
+            # No specific cleanup needed for our display classes                                          
+            self.initialized = False
+
+            if self.state_manager:
+                self.state_manager.update_display_state(DisplayState.DISCONNECTED)
+
+            logger.info("Display cleaned up successfully")                                                
+            return True                                                                                   
+        except Exception as e:                                                                            
+            logger.error(f"Error during display cleanup: {e}")
+
+            if self.state_manager:
+                self.state_manager.update_display_state(DisplayState.ERROR)
+
+            return False                                                                                  
+                                                                                                        
+    @classmethod                                                                                          
+    async def create(cls, state_manager: Optional[StateManager] = None,
+                    config: Optional[DisplayConfig] = None):
+        """Factory method to create and initialize a display manager.                                     
+                                                                                                        
+        Args:                                                                                             
+            state_manager: Optional state manager for updating display state
+            config: Optional display configuration
+                                                                                                        
+        Returns:                                                                                          
+            DisplayManager: Initialized display manager                                                   
+        """
+        # Handle backward compatibility with old create method signature
+        if isinstance(state_manager, bool):  # Old 'virtual' parameter
+            virtual = state_manager
+            vcom = config if isinstance(config, float) else -2.06
+            config = DisplayConfig(virtual=virtual, vcom=vcom)
+            state_manager = None
+
+        manager = cls(state_manager=state_manager, config=config)
+        await manager.initialize()                                                                        
+        return manager

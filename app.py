@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt, QTimer
 
 from src.ui.main_window import MainWindow
-from src.core.display_manager import create_display_manager, DisplayConfig
+from src.core.display_manager import DisplayManager, DisplayConfig
 from src.core.state_manager import StateManager
 from src.core.test_controller import TestController
 
@@ -70,7 +70,7 @@ class Application:
 
             # Initialize display manager
             display_config = DisplayConfig(vcom=-2.06)
-            self.display_manager = create_display_manager(
+            self.display_manager = DisplayManager.create(
                 self.state_manager,
                 display_config
             )
