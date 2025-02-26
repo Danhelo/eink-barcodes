@@ -1,5 +1,5 @@
 """
-Quick test page implementation.
+Quick test page implementation with enhanced progress tracking.
 """
 from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel,
@@ -15,6 +15,7 @@ from typing import Optional, List
 from .base_test_page import BaseTestPage
 from ...core.test_controller import TestController
 from ...core.test_config import TestConfig
+from ...core.progress_manager import ProgressManager
 
 logger = logging.getLogger(__name__)
 
@@ -23,15 +24,17 @@ class QuickTestPage(BaseTestPage):
 
     page_title = "Quick Test"
 
-    def __init__(self, parent=None, test_controller: Optional[TestController] = None):
+    def __init__(self, parent=None, test_controller: Optional[TestController] = None,
+                 progress_manager: Optional[ProgressManager] = None):
         """Initialize QuickTestPage.
 
         Args:
             parent: Parent widget (should be MainWindow)
             test_controller: Test controller instance
+            progress_manager: Optional progress manager instance
         """
         # Ensure parent is set before base class initialization
-        super().__init__(parent, test_controller)
+        super().__init__(parent, test_controller, progress_manager)
         self.current_barcodes: List[str] = []
         self.current_index: int = 0
         self.setup_ui()
@@ -111,8 +114,7 @@ class QuickTestPage(BaseTestPage):
         layout.addWidget(controls_group)
 
         # Progress bar
-        self.progress = self.create_progress_bar()
-        layout.addWidget(self.progress)
+        self.add_progress_bar_to_layout(layout)
 
         self.setLayout(layout)
 

@@ -1,57 +1,71 @@
 """
-Base test page implementation.
+Base test page implementation with improved progress tracking.
 """
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QProgressBar, QApplication,
+    QPushButton, QLabel, QApplication,
     QGroupBox, QMessageBox
 )
-from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal, QTimer
 import logging
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, Callable
 import asyncio
 from qasync import asyncSlot
+import time
 
 from ..widgets.preview import PreviewWidget
+from ..widgets.enhanced_progress import EnhancedProgressBar
 from ...core.test_controller import TestController
 from ...core.test_config import TestConfig
 from ...core.state_manager import StateObserver, TestState
+from ...core.progress_manager import ProgressManager
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)  # Set to DEBUG level to see progress updates
 
 class BaseTestPage(QWidget, StateObserver):
-    """Base class for test pages."""
+    """Base class for test pages with improved progress tracking."""
 
     page_title = "Test Page"
 
-    # Define a signal for progress updates
-    progress_updated = pyqtSignal(int, str)
+    # Define signals for progress updates
+    progress_started = pyqtSignal()
+    progress_updated = pyqtSignal(float, str)
+    progress_finished = pyqtSignal()
 
-    def __init__(self, parent=None, test_controller: Optional[TestController] = None):
+    def __init__(self, parent=None, test_controller: Optional[TestController] = None, 
+                 progress_manager: Optional[ProgressManager] = None):
         """Initialize BaseTestPage.
 
         Args:
             parent: Parent widget (should be MainWindow)
             test_controller: Test controller instance
+            progress_manager: Optional progress manager to coordinate updates
         """
         QWidget.__init__(self, parent)
         StateObserver.__init__(self)
         self.test_controller = test_controller
         self.main_window = parent
         self._test_running = False
-        self._last_progress_value = 0  # Track last progress value to prevent jumps
-
-        # Connect the progress signal to the update slot
-        self.progress_updated.connect(self._update_progress_ui)
+        self._progress_update_timer = None
+        
+        # Create or use provided progress manager
+        self.progress_manager = progress_manager or ProgressManager()
+        
+        # Connect the progress signals
+        self.progress_started.connect(self._on_progress_started)
+        self.progress_updated.connect(self._on_progress_updated)
+        self.progress_finished.connect(self._on_progress_finished)
 
         # Register as observer if test_controller is available
-        if self.test_controller and self.test_controller.state_manager:
+        if self.test_controller and hasattr(self.test_controller, 'state_manager'):
             self.test_controller.state_manager.add_observer(self)
 
-            # Register direct progress callback
+            # Register direct progress callback with test controller
             if hasattr(self.test_controller, 'set_progress_callback'):
-                self.test_controller.set_progress_callback(self.update_progress_direct)
+                # Use progress manager as intermediary
+                self.progress_manager.register_observer(self.update_progress_direct)
+                self.test_controller.set_progress_callback(self.progress_manager.update_progress)
+                logger.debug("Progress callback registered with test controller")
 
     def setup_base_ui(self) -> Tuple[QVBoxLayout, QHBoxLayout]:
         """Set up base UI elements.
@@ -67,6 +81,7 @@ class BaseTestPage(QWidget, StateObserver):
         # Header with title
         header = QHBoxLayout()
         title = QLabel(self.page_title)
+        title.setObjectName("title")
         title.setAlignment(Qt.AlignCenter)
         header.addWidget(title)
         layout.addLayout(header)
@@ -93,9 +108,9 @@ class BaseTestPage(QWidget, StateObserver):
         controls_layout = QHBoxLayout()
 
         # Back button
-        back_button = QPushButton("Back to Menu")
-        back_button.clicked.connect(self.show_menu)
-        controls_layout.addWidget(back_button)
+        self.back_button = QPushButton("Back to Menu")
+        self.back_button.clicked.connect(self.show_menu)
+        controls_layout.addWidget(self.back_button)
 
         # Start button
         self.start_button = QPushButton("Start Test")
@@ -111,21 +126,27 @@ class BaseTestPage(QWidget, StateObserver):
         controls_group.setLayout(controls_layout)
         return controls_group
 
-    def create_progress_bar(self) -> QProgressBar:
-        """Create progress bar widget."""
-        progress = QProgressBar()
-        progress.setTextVisible(True)
-        progress.setAlignment(Qt.AlignCenter)
-        progress.setMinimumHeight(30)
-        progress.setFixedHeight(30)
-        progress.setFormat("%p%")  # Default format
-        progress.setRange(0, 100)  # Ensure range is set correctly
-        progress.setValue(0)       # Initialize to 0
-        progress.hide()
+    def create_progress_bar(self) -> EnhancedProgressBar:
+        """Create enhanced progress bar widget."""
+        progress = EnhancedProgressBar(self)
+        progress.hide()  # Initially hidden
         return progress
+
+    def add_progress_bar_to_layout(self, layout: QVBoxLayout):
+        """Add progress bar to layout with proper setup.
+        
+        Args:
+            layout: Layout to add progress bar to
+        """
+        if not hasattr(self, 'progress'):
+            self.progress = self.create_progress_bar()
+        
+        # Add to layout
+        layout.addWidget(self.progress)
 
     def handle_error(self, message: str):
         """Display error message to user."""
+        logger.error(message)
         QMessageBox.critical(self, "Error", message)
 
     def show_menu(self):
@@ -195,36 +216,37 @@ class BaseTestPage(QWidget, StateObserver):
         if not config:
             return
 
-        try:
-            # Reset progress tracking
-            self._last_progress_value = 0
+        # Create test ID
+        test_id = f"test_{int(time.time())}"
+        
+        # Start progress tracking via progress manager
+        self.progress_manager.start_progress(test_id)
+        
+        # Emit progress started signal to update UI
+        logger.debug("Emitting progress_started signal")
+        self.progress_started.emit()
 
-            # Update UI
+        try:
+            # Update UI state for test execution
+            logger.info("Starting test execution")
             self._test_running = True
             self.start_button.setEnabled(False)
             self.stop_button.setEnabled(True)
-            self.progress.setValue(0)  # Reset to 0
-            self.progress.setFormat("0% - Starting test...")
-            self.progress.show()
-            self.progress.setVisible(True)
-            self.progress.repaint()  # Force immediate repaint
-
-            # Process pending events to ensure UI updates
-            QApplication.processEvents()
-
-            # Add a small delay to ensure the UI updates before test starts
-            await asyncio.sleep(0.1)
+            
+            # Update state in state manager
+            if hasattr(self.test_controller, 'state_manager'):
+                self.test_controller.state_manager.transition_to(
+                    TestState.RUNNING,
+                    {"test_id": test_id, "progress": 0.0, "current_image": "", "error": None}
+                )
 
             # Run test
             results = await self.test_controller.run_test(config)
 
-            # Ensure progress bar shows 100% at completion
-            self.progress.setValue(100)
-            self.progress.setFormat("100% - Complete")
-            self.progress.repaint()
-            QApplication.processEvents()
-
             if results.get("success", False):
+                # Mark progress as complete
+                self.progress_manager.complete_progress("Test completed successfully")
+                
                 QMessageBox.information(
                     self,
                     "Test Completed",
@@ -233,18 +255,38 @@ class BaseTestPage(QWidget, StateObserver):
                 )
             else:
                 error_msg = results.get("error", "Unknown error")
+                
+                # Mark progress as aborted
+                self.progress_manager.abort_progress(f"Error: {error_msg}")
+                
                 raise RuntimeError(f"Test failed: {error_msg}")
 
         except Exception as e:
             logger.error(f"Test execution error: {e}")
             self.handle_error(str(e))
+            
+            # Update state in state manager
+            if hasattr(self.test_controller, 'state_manager'):
+                self.test_controller.state_manager.transition_to(
+                    TestState.ERROR,
+                    {"error": str(e), "test_id": test_id}
+                )
+                
+            # Ensure progress is marked as aborted
+            if self.progress_manager.is_active():
+                self.progress_manager.abort_progress(f"Error: {str(e)}")
 
         finally:
-            # Reset UI and cleanup
+            # Reset UI state
             self._test_running = False
             self.start_button.setEnabled(True)
             self.stop_button.setEnabled(False)
-            self.progress.hide()
+            
+            # Emit progress finished signal
+            logger.debug("Emitting progress_finished signal")
+            self.progress_finished.emit()
+            
+            logger.info("Test execution completed")
 
     async def stop_test(self):
         """Stop test execution."""
@@ -252,11 +294,20 @@ class BaseTestPage(QWidget, StateObserver):
             return
 
         try:
+            # Mark progress as stopped in progress manager
+            if self.progress_manager.is_active():
+                self.progress_manager.abort_progress("Test stopped by user")
+            
+            # Stop the test in test controller
             await self.test_controller.stop_test()
+            
+            # Update UI state
             self._test_running = False
             self.start_button.setEnabled(True)
             self.stop_button.setEnabled(False)
-            self.progress.hide()
+            
+            # Emit progress finished signal
+            self.progress_finished.emit()
 
             QMessageBox.information(
                 self,
@@ -268,90 +319,115 @@ class BaseTestPage(QWidget, StateObserver):
             logger.error(f"Failed to stop test: {e}")
             self.handle_error(str(e))
 
-    def update_progress_direct(self, progress: float, current_image: str):
-        """Direct callback for progress updates.
-
-        This method is called directly from the test controller.
+    def update_progress_direct(self, progress: float, message: str):
+        """Direct callback for progress updates from test controller or progress manager.
 
         Args:
             progress: Progress value (0.0-1.0)
-            current_image: Current image being processed
+            message: Current status message
         """
         try:
-            # Calculate percentage
-            progress_value = int(progress * 100)
-
-            # Log the progress update
-            logger.debug(f"Progress update received: {progress_value}% - {current_image}")
-
-            # Validate progress value to prevent jumps
-            if progress_value < self._last_progress_value and progress_value != 0:
-                logger.warning(f"Progress decreased from {self._last_progress_value}% to {progress_value}%, ignoring")
-                return
-
-            # Update last progress value
-            self._last_progress_value = progress_value
-
-            # Emit the signal to update the UI in the main thread
-            self.progress_updated.emit(progress_value, current_image)
-
+            # Emit signal to update progress in the UI thread
+            self.progress_updated.emit(progress, message)
         except Exception as e:
             logger.error(f"Error in progress callback: {e}")
 
-    @pyqtSlot(int, str)
-    def _update_progress_ui(self, progress_value: int, current_image: str):
-        """Update the progress bar UI.
+    def _on_progress_started(self):
+        """Handle progress start signal."""
+        if hasattr(self, 'progress'):
+            # Reset and show progress bar
+            self.progress.reset()
+            self.progress.setVisibleWhenZero(True)
+            self.progress.show()
+        else:
+            logger.warning("Progress bar not found when handling progress start")
 
-        This slot is connected to the progress_updated signal and runs in the UI thread.
+    def _on_progress_updated(self, value: float, message: str):
+        """Handle progress update signal in the UI thread.
 
         Args:
-            progress_value: Progress value (0-100)
-            current_image: Current image being processed
+            value: Progress value (0.0-1.0)
+            message: Current status message
         """
-        try:
-            if not hasattr(self, 'progress'):
-                logger.warning("Progress bar not found")
-                return
+        if hasattr(self, 'progress'):
+            # Update progress bar and ensure UI updates
+            updated = self.progress.updateProgress(value, message)
+            
+            # CRITICAL FIX: Always process events regardless of whether the update was throttled
+            # This ensures the UI repaints even when the progress bar is throttling updates
+            QApplication.processEvents()
+            
+            # Log progress updates to help with debugging
+            logger.debug(f"Progress updated: {value:.2f} - {message} (UI updated: {updated})")
+        else:
+            logger.warning("Progress bar not found when handling progress update")
 
-            # Log the UI update
-            logger.debug(f"Updating progress UI: {progress_value}% - {current_image}")
+    def _on_progress_finished(self):
+        """Handle progress finished signal."""
+        if hasattr(self, 'progress'):
+            # Hide progress bar
+            self.progress.setVisibleWhenZero(False)
+            self.progress.hide()
 
-            # Set the value
-            self.progress.setValue(progress_value)
+    def _start_progress_timer(self):
+        """Start timer for periodic UI updates during progress."""
+        # We no longer need a timer for progress updates
+        # This method remains for backward compatibility
+        pass
 
-            # Format text with current image if available
-            if current_image:
-                image_name = current_image.split('/')[-1] if '/' in current_image else current_image  # Get just the filename
-                self.progress.setFormat(f"{progress_value}% - Processing {image_name}")
-            else:
-                self.progress.setFormat(f"{progress_value}%")
+    def _stop_progress_timer(self):
+        """Stop progress update timer if running."""
+        # We no longer need a timer for progress updates
+        # This method remains for backward compatibility
+        pass
 
-            # Force the progress bar to update visually
-            self.progress.repaint()
-            QApplication.processEvents()  # Process pending UI events
-
-        except Exception as e:
-            logger.error(f"Error updating progress bar UI: {e}")
+    def _refresh_progress_ui(self):
+        """Periodic refresh of progress UI from timer."""
+        # This method is now a no-op as we don't need timer-based polling
+        # Progress updates come directly through signals from progress_manager
+        pass
 
     def on_state_changed(self, new_state: TestState, context: Optional[Dict] = None):
         """Called when test state changes.
 
-        Overrides StateObserver.on_state_changed to update the progress bar.
+        Args:
+            new_state: New test state
+            context: Optional context dict with state information
         """
-        # Call parent method to update internal state
+        # Call parent method
         super().on_state_changed(new_state, context)
-
-        # Log state change
-        logger.debug(f"State changed to {new_state} with context: {context}")
-
-        # We're now using the direct callback approach, but we'll keep this as a backup
-        # Update progress bar if context contains progress information
-        if context and 'progress' in context and hasattr(self, 'progress'):
-            progress_value = int(context['progress'] * 100)
+        
+        # Only update progress from state manager in specific cases to avoid conflicts
+        # with direct progress updates from TestController
+        if context and hasattr(self, 'progress'):
+            progress_value = context.get('progress', 0.0)
             current_image = context.get('current_image', '')
+            
+            # Only handle state transitions that aren't covered by regular progress updates
+            if new_state == TestState.COMPLETED:
+                # Force progress to 100% on completion
+                self.progress_updated.emit(1.0, "Complete")
+                logger.debug("State manager enforcing 100% on completion")
+            elif new_state == TestState.ERROR:
+                # Show error in progress bar
+                error_msg = context.get('error', 'Unknown error')
+                self.progress_updated.emit(progress_value, f"Error: {error_msg}")
+                logger.debug(f"State manager showing error: {error_msg}")
+            # Don't update progress for RUNNING state - let progress_manager handle it
 
-            # Log the state-based progress update
-            logger.debug(f"State-based progress update: {progress_value}% - {current_image}")
-
-            # Use the signal to update the UI in the main thread
-            self.progress_updated.emit(progress_value, current_image)
+    def cleanup(self):
+        """Clean up resources."""
+        # Stop any running timer
+        self._stop_progress_timer()
+        
+        # Abort any in-progress operations
+        if self.progress_manager and self.progress_manager.is_active():
+            self.progress_manager.abort_progress("Page cleanup")
+        
+        # Remove observer from state manager
+        if self.test_controller and hasattr(self.test_controller, 'state_manager'):
+            self.test_controller.state_manager.remove_observer(self)
+            
+        # Remove observer from progress manager
+        if hasattr(self, 'progress_manager'):
+            self.progress_manager.unregister_observer(self.update_progress_direct)
