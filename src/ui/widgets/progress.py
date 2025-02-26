@@ -1,7 +1,12 @@
 """
-DEPRECATED: This file is kept for backward compatibility but is no longer used.
-Progress bar functionality has been standardized in BaseTestPage.
+Progress bar module - deprecated.
+
+This module is kept for backward compatibility.
+Use enhanced_progress.py instead.
 """
 
-# This file is intentionally empty as the ProgressDialog has been removed
-# and progress bar functionality is now handled by BaseTestPage
+# Import the enhanced progress bar for backward compatibility
+from .enhanced_progress import EnhancedProgressBar
+
+# Re-export the enhanced progress bar
+__all__ = ["EnhancedProgressBar"]

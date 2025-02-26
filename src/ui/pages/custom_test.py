@@ -1,5 +1,5 @@
 """
-Custom test page implementation with advanced options.
+Custom test page implementation with advanced options and enhanced progress tracking.
 """
 from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel,
@@ -16,6 +16,7 @@ from typing import Optional
 from .base_test_page import BaseTestPage
 from ...core.test_controller import TestController
 from ...core.test_config import TestConfig
+from ...core.progress_manager import ProgressManager
 
 logger = logging.getLogger(__name__)
 
@@ -24,15 +25,17 @@ class CustomTestPage(BaseTestPage):
 
     page_title = "Custom Test"
 
-    def __init__(self, parent=None, test_controller: Optional[TestController] = None):
+    def __init__(self, parent=None, test_controller: Optional[TestController] = None,
+                 progress_manager: Optional[ProgressManager] = None):
         """Initialize CustomTestPage.
 
         Args:
             parent: Parent widget (should be MainWindow)
             test_controller: Test controller instance
+            progress_manager: Optional progress manager instance
         """
         # Ensure parent is set before base class initialization
-        super().__init__(parent, test_controller)
+        super().__init__(parent, test_controller, progress_manager)
         self.current_image: Optional[Image.Image] = None
         self.current_image_path: Optional[str] = None
         self.setup_ui()
@@ -150,8 +153,10 @@ class CustomTestPage(BaseTestPage):
         # Controls
         layout.addWidget(self.create_controls_group())
 
-        # Add the progress bar that was created in the parent class
+        # Progress bar
+        self.progress = self.create_progress_bar()
         self.add_progress_bar_to_layout(layout)
+
         self.setLayout(layout)
 
     def browse_file(self):
@@ -231,7 +236,12 @@ class CustomTestPage(BaseTestPage):
                 auto_center=self.auto_center.isChecked(),
                 refresh_rate=self.refresh_spin.value(),
                 count=self.count_spin.value(),
-                delay_between_images=1.0 / self.refresh_spin.value()
+                delay_between_images=1.0 / self.refresh_spin.value(),
+                transformations={
+                    "rotation": float(self.rotation_slider.value()),
+                    "scale": self.scale_spin.value(),
+                    "mirror": False
+                }
             )
         except Exception as e:
             logger.error(f"Failed to create test config: {e}")
