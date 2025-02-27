@@ -1,142 +1,202 @@
-from PIL import Image
+# src/core/display.py
+"""
+Display interface with virtual and hardware implementations.
+"""
 import logging
-from typing import Optional, Union, Tuple
-import os
+from abc import ABC, abstractmethod
+from PIL import Image
+from typing import Optional, Tuple, Dict, Any
 
 logger = logging.getLogger(__name__)
 
-class VirtualDisplay:
-    """Virtual display for development/testing without physical hardware."""
-
-    def __init__(self, width=800, height=600):
-        self.width = width
-        self.height = height
-        self.current_image = None
-        logger.info("Initialized virtual display %dx%d", width, height)
-
-    def prepare_display(self, **kwargs):
-        """Simulate display preparation."""
+class Display(ABC):
+    """Abstract display interface."""
+    
+    @abstractmethod
+    def initialize(self) -> bool:
+        """Initialize the display."""
+        pass
+        
+    @abstractmethod
+    def display_image(self, image: Image.Image) -> bool:
+        """Display an image."""
+        pass
+        
+    @abstractmethod
+    def clear(self) -> bool:
+        """Clear the display."""
+        pass
+        
+    @abstractmethod
+    def cleanup(self) -> bool:
+        """Clean up resources."""
+        pass
+        
+    @property
+    @abstractmethod
+    def dimensions(self) -> Tuple[int, int]:
+        """Get display dimensions (width, height)."""
         pass
 
-    def display_image(self, image):
-        """Store the image that would be displayed."""
-        self.current_image = image
-        logger.info("Virtual display updated with image %dx%d",
-                   image.width, image.height)
+class VirtualDisplay(Display):
+    """Virtual display implementation for development and testing."""
+    
+    def __init__(self, width: int = 800, height: int = 600):
+        self._width = width
+        self._height = height
+        self._current_image = None
+        self._initialized = False
+        
+    def initialize(self) -> bool:
+        logger.info(f"Initialized virtual display {self._width}x{self._height}")
+        self._initialized = True
         return True
-
-    def clear(self):
-        """Clear the virtual display."""
-        self.current_image = None
+        
+    def display_image(self, image: Image.Image) -> bool:
+        if not self._initialized:
+            logger.error("Display not initialized")
+            return False
+            
+        self._current_image = image.copy()
+        logger.info(f"Virtual display updated with image {image.width}x{image.height}")
+        return True
+        
+    def clear(self) -> bool:
+        if not self._initialized:
+            return False
+            
+        self._current_image = None
         logger.info("Virtual display cleared")
         return True
+        
+    def cleanup(self) -> bool:
+        self._current_image = None
+        self._initialized = False
+        return True
+        
+    @property
+    def dimensions(self) -> Tuple[int, int]:
+        return (self._width, self._height)
+        
+    @property
+    def current_image(self) -> Optional[Image.Image]:
+        """Get the currently displayed image."""
+        return self._current_image
 
-class AutoEPDDisplayWrapper:
-    """Wrapper for IT8951.display.AutoEPDDisplay to provide consistent interface."""
-
-    def __init__(self, epd_display):
-        """Initialize with an AutoEPDDisplay instance."""
-        self.display = epd_display
-        self.width = self.display.width
-        self.height = self.display.height
-
-    def prepare_display(self, **kwargs):
-        """Prepare the display for use."""
-        # Nothing needed here as initialization is done in constructor
-        pass
-
-    def display_image(self, image: Image.Image) -> bool:
-        """Display an image on the e-ink display.
-
-        Args:
-            image: PIL Image to display
-
-        Returns:
-            bool: True if successful
-        """
+class HardwareDisplay(Display):
+    """Hardware display implementation using IT8951 library."""
+    
+    def __init__(self, config: Dict[str, Any]):
+        self._config = config
+        self._vcom = config.get('vcom', -2.06)
+        self._display = None
+        self._width = 0
+        self._height = 0
+        self._initialized = False
+        
+    def initialize(self) -> bool:
         try:
-            # Resize image if needed
-            if image.width > self.width or image.height > self.height:
-                # Maintain aspect ratio
-                aspect_ratio = image.width / image.height
-                if image.width > image.height:
-                    new_width = self.width
-                    new_height = int(new_width / aspect_ratio)
-                else:
-                    new_height = self.height
-                    new_width = int(new_height * aspect_ratio)
-
-                image = image.resize((new_width, new_height), Image.BICUBIC)
-                logger.info(f"Resized image to {new_width}x{new_height}")
-
-            # Calculate position to center the image
-            x = (self.width - image.width) // 2
-            y = (self.height - image.height) // 2
-
-            # Clear the frame buffer
-            self.display.frame_buf.paste(0xFF, box=(0, 0, self.width, self.height))
-
-            # Paste the image onto the frame buffer
-            self.display.frame_buf.paste(image, (x, y))
-
-            # Use the appropriate display mode for best quality
-            from IT8951 import constants
-            self.display.draw_full(constants.DisplayModes.GC16)
-
-            logger.info(f"Displayed image at position ({x}, {y})")
+            from IT8951.display import AutoEPDDisplay
+            
+            # Get configuration parameters
+            spi_hz = self._config.get('spi_hz', 24000000)
+            mirror = self._config.get('mirror', False)
+            
+            # Initialize the display
+            self._display = AutoEPDDisplay(vcom=self._vcom, spi_hz=spi_hz, mirror=mirror)
+            self._width = self._display.width
+            self._height = self._display.height
+            self._initialized = True
+            
+            logger.info(f"Hardware display initialized: {self._width}x{self._height}")
             return True
-
+            
+        except ImportError:
+            logger.error("IT8951 library not available")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize hardware display: {e}")
+            return False
+            
+    def display_image(self, image: Image.Image) -> bool:
+        if not self._initialized or not self._display:
+            logger.error("Display not initialized")
+            return False
+            
+        try:
+            # Prepare the image (resize if needed)
+            if image.width > self._width or image.height > self._height:
+                # Maintain aspect ratio
+                ratio = min(self._width / image.width, self._height / image.height)
+                new_width = int(image.width * ratio)
+                new_height = int(image.height * ratio)
+                image = image.resize((new_width, new_height), Image.BICUBIC)
+                
+            # Center the image
+            x = (self._width - image.width) // 2
+            y = (self._height - image.height) // 2
+            
+            # Clear the frame buffer
+            self._display.frame_buf.paste(0xFF, box=(0, 0, self._width, self._height))
+            
+            # Paste the image
+            self._display.frame_buf.paste(image, (x, y))
+            
+            # Display with appropriate mode
+            from IT8951 import constants
+            display_mode = self._config.get('display_mode', constants.DisplayModes.GC16)
+            self._display.draw_full(display_mode)
+            
+            return True
+            
         except Exception as e:
             logger.error(f"Error displaying image: {e}")
             return False
-
+            
     def clear(self) -> bool:
-        """Clear the display.
-
-        Returns:
-            bool: True if successful
-        """
+        if not self._initialized or not self._display:
+            return False
+            
         try:
-            self.display.clear()
-            logger.info("Display cleared")
+            self._display.clear()
             return True
         except Exception as e:
             logger.error(f"Error clearing display: {e}")
             return False
-
-class DisplayManager:
-    """Manages display initialization and provides fallback to virtual display."""
-
-    @staticmethod
-    def get_display(virtual=False, vcom=-2.06):
-        """Get appropriate display instance.
-
-        Args:
-            virtual (bool): Force virtual display mode
-            vcom (float): VCOM value for e-ink display
-
-        Returns:
-            Display instance (either IT8951 or Virtual)
-        """
-        if virtual:
-            logger.info("Using virtual display as requested")
-            return VirtualDisplay()
-
+            
+    def cleanup(self) -> bool:
+        if not self._initialized:
+            return True
+            
         try:
-            from IT8951.display import AutoEPDDisplay
-            display = AutoEPDDisplay(vcom=vcom)
-            logger.info(f"EPD Display Manager initialized with VCOM {vcom}")
-
-            # Initialize the display
-            display.clear()
-            logger.info(f"Display initialized successfully: {display.width}x{display.height}")
-
-            # Wrap the display to provide consistent interface
-            return AutoEPDDisplayWrapper(display)
-
-        except (ImportError, ModuleNotFoundError) as e:
-            logger.warning("IT8951 module not available, falling back to virtual display: %s", e)
-            return VirtualDisplay()
+            if self._display:
+                self.clear()
+            self._initialized = False
+            return True
         except Exception as e:
-            logger.error("Failed to initialize IT8951 display: %s", e)
-            return VirtualDisplay()
+            logger.error(f"Error during cleanup: {e}")
+            return False
+            
+    @property
+    def dimensions(self) -> Tuple[int, int]:
+        return (self._width, self._height)
+
+def create_display(config: Dict[str, Any]) -> Display:
+    """Factory function to create appropriate display instance."""
+    virtual = config.get('virtual', False)
+    
+    if virtual:
+        # Create virtual display with configured dimensions
+        dimensions = config.get('dimensions', (800, 600))
+        return VirtualDisplay(dimensions[0], dimensions[1])
+        
+    # Try hardware display
+    hardware = HardwareDisplay(config)
+    if hardware.initialize():
+        return hardware
+        
+    # Fall back to virtual if hardware initialization fails
+    logger.warning("Hardware display initialization failed, falling back to virtual")
+    dimensions = config.get('dimensions', (800, 600))
+    return VirtualDisplay(dimensions[0], dimensions[1])
