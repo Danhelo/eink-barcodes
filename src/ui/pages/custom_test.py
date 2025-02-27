@@ -225,28 +225,27 @@ class CustomTestPage(BaseTestPage):
                 scale=self.scale_spin.value()
             )
 
-            # Create transformed preview image
-            preview_img = prepare_image_for_display(
+            # Apply transformations using prepare_image_for_display
+            transformed_img = prepare_image_for_display(
                 self.current_image,
                 angle=float(self.rotation_slider.value()),
                 scale=self.scale_spin.value(),
-                background=0xFF  # White background
+                background=0xFF  # White background for e-ink
             )
 
-            # Resize to fit preview area
-            preview_img = preview_img.resize((new_width, new_height), Image.BICUBIC)
+            # Resize maintaining aspect ratio
+            transformed_img = transformed_img.resize((new_width, new_height), Image.BICUBIC)
 
             # Center if enabled
             if self.auto_center.isChecked():
-                x = (preview_width - new_width) // 2
-                y = (preview_height - new_height) // 2
+                x = (preview_width - transformed_img.width) // 2
+                y = (preview_height - transformed_img.height) // 2
                 centered_img = Image.new('L', (preview_width, preview_height), 255)
-                centered_img.paste(preview_img, (x, y))
-                preview_img = centered_img
+                centered_img.paste(transformed_img, (x, y))
+                transformed_img = centered_img
 
-            logger.debug(f"Updated preview with rotation={self.rotation_slider.value()}, scale={self.scale_spin.value()}")
             # Update preview
-            self.preview.update_preview(preview_img)
+            self.preview.update_preview(transformed_img)
 
         except Exception as e:
             logger.error(f"Failed to update preview: {e}")
@@ -262,11 +261,10 @@ class CustomTestPage(BaseTestPage):
     def create_test_config(self) -> Optional[TestConfig]:
         """Create test configuration."""
         try:
-            logger.debug("Creating test configuration...")
             # Save the transformed image to a temporary file if needed
             image_paths = [self.current_image_path] * self.count_spin.value()
 
-            config = TestConfig(
+            return TestConfig(
                 barcode_type=self.type_combo.currentText(),
                 image_paths=image_paths,
                 rotation=float(self.rotation_slider.value()),
@@ -281,16 +279,7 @@ class CustomTestPage(BaseTestPage):
                     "mirror": False
                 }
             )
-            logger.debug(f"Created config with rotation={config.rotation}, scale={config.scale}")
-            return config
         except Exception as e:
             logger.error(f"Failed to create test config: {e}")
             self.handle_error(str(e))
             return None
-
-    def handle_test_started(self):
-        """Handle test start event."""
-        logger.debug("Test started - updating UI state")
-        super().handle_test_started()
-        self.browse_button.setEnabled(False)
-        self.preview.setEnabled(False)
