@@ -4,6 +4,7 @@ from PIL import Image
 import os                                                                                                 
 from typing import Optional, List, Dict, Any, Union                                                       
                                                                                                         
+from IT8951.img_transform import prepare_image_for_display
 from src.core.display import VirtualDisplay, AutoEPDDisplayWrapper
 from .state_manager import StateManager, DisplayState
                                                                                                         
@@ -142,9 +143,26 @@ class DisplayManager(BaseDisplayManager):
                                                                                                         
             # Load and process image                                                                      
             image = Image.open(image_path).convert('L')  # Convert to grayscale                           
-            logger.info(f"Loaded image {image_path}: {image.width}x{image.height}")                       
+            logger.info(f"Loaded image {image_path}: {image.width}x{image.height}")
+
+            # Apply transformations if configured
+            if hasattr(self.config, 'transformations') and self.config.transformations:
+                logger.debug(f"Applying transformations: {self.config.transformations}")
+                image = prepare_image_for_display(
+                    image,
+                    angle=self.config.transformations.get('rotation', 0),
+                    scale=self.config.transformations.get('scale', 1.0),
+                    background=0xFF  # White background for e-ink
+                )
+                logger.info(f"Image transformed: {image.width}x{image.height}")
+            elif self.config.rotation != 0 or self.config.scale != 1.0:
+                image = prepare_image_for_display(
+                    image,
+                    angle=self.config.rotation,
+                    scale=self.config.scale,
+                    background=0xFF
+                )
                                                                                                         
-            # Display the image                                                                           
             result = self.display.display_image(image)                                                    
             if not result:                                                                                
                 logger.error(f"Failed to display image: {image_path}")

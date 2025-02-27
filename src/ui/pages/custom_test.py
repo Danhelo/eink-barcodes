@@ -12,6 +12,7 @@ import os
 import logging
 from PIL import Image
 from typing import Optional
+from IT8951.img_transform import prepare_image_for_display
 
 from .base_test_page import BaseTestPage
 from ...core.test_controller import TestController
@@ -19,6 +20,26 @@ from ...core.test_config import TestConfig
 from ...core.progress_manager import ProgressManager
 
 logger = logging.getLogger(__name__)
+
+def calculate_resize_dimensions(image, max_width, max_height, scale=1.0):
+    """Calculate new dimensions that maintain aspect ratio and fit within max bounds."""
+    aspect_ratio = image.width / image.height
+    scaled_max_width = int(max_width * scale)
+    scaled_max_height = int(max_height * scale)
+
+    # Try scaling by width first
+    new_width = scaled_max_width
+    new_height = int(new_width / aspect_ratio)
+
+    # If too tall, scale by height instead
+    if new_height > scaled_max_height:
+        new_height = scaled_max_height
+        new_width = int(new_height * aspect_ratio)
+
+    logger.info(f"Scaling image: original size={image.width}x{image.height}, "
+          f"new size={new_width}x{new_height} (scale={scale:.2f})")
+
+    return new_width, new_height
 
 class CustomTestPage(BaseTestPage):
     """Custom test page with advanced configuration options."""
@@ -192,24 +213,40 @@ class CustomTestPage(BaseTestPage):
             return
 
         try:
-            # Apply transformations
-            image = self.current_image.copy()
+            # Get preview widget dimensions
+            preview_width = self.preview.width()
+            preview_height = self.preview.height()
 
-            # Scale
-            if self.scale_spin.value() != 1.0:
-                new_size = tuple(int(dim * self.scale_spin.value()) for dim in image.size)
-                image = image.resize(new_size, Image.Resampling.LANCZOS)
+            # Calculate dimensions that maintain aspect ratio
+            new_width, new_height = calculate_resize_dimensions(
+                self.current_image,
+                preview_width,
+                preview_height,
+                scale=self.scale_spin.value()
+            )
 
-            # Rotate
-            if self.rotation_slider.value() != 0:
-                image = image.rotate(
-                    self.rotation_slider.value(),
-                    expand=True,
-                    resample=Image.Resampling.BICUBIC
-                )
+            # Create transformed preview image
+            preview_img = prepare_image_for_display(
+                self.current_image,
+                angle=float(self.rotation_slider.value()),
+                scale=self.scale_spin.value(),
+                background=0xFF  # White background
+            )
 
+            # Resize to fit preview area
+            preview_img = preview_img.resize((new_width, new_height), Image.BICUBIC)
+
+            # Center if enabled
+            if self.auto_center.isChecked():
+                x = (preview_width - new_width) // 2
+                y = (preview_height - new_height) // 2
+                centered_img = Image.new('L', (preview_width, preview_height), 255)
+                centered_img.paste(preview_img, (x, y))
+                preview_img = centered_img
+
+            logger.debug(f"Updated preview with rotation={self.rotation_slider.value()}, scale={self.scale_spin.value()}")
             # Update preview
-            self.preview.update_preview(image)
+            self.preview.update_preview(preview_img)
 
         except Exception as e:
             logger.error(f"Failed to update preview: {e}")
@@ -225,10 +262,11 @@ class CustomTestPage(BaseTestPage):
     def create_test_config(self) -> Optional[TestConfig]:
         """Create test configuration."""
         try:
+            logger.debug("Creating test configuration...")
             # Save the transformed image to a temporary file if needed
             image_paths = [self.current_image_path] * self.count_spin.value()
 
-            return TestConfig(
+            config = TestConfig(
                 barcode_type=self.type_combo.currentText(),
                 image_paths=image_paths,
                 rotation=float(self.rotation_slider.value()),
@@ -243,7 +281,16 @@ class CustomTestPage(BaseTestPage):
                     "mirror": False
                 }
             )
+            logger.debug(f"Created config with rotation={config.rotation}, scale={config.scale}")
+            return config
         except Exception as e:
             logger.error(f"Failed to create test config: {e}")
             self.handle_error(str(e))
             return None
+
+    def handle_test_started(self):
+        """Handle test start event."""
+        logger.debug("Test started - updating UI state")
+        super().handle_test_started()
+        self.browse_button.setEnabled(False)
+        self.preview.setEnabled(False)

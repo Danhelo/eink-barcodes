@@ -48,25 +48,29 @@ class PreviewWidget(QWidget):
         Returns:
             QPixmap version of the image
         """
-        # Convert PIL image to RGB if it isn't
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
+        try:
+            # Convert PIL image to RGB if it isn't
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
 
-        # Convert to numpy array
-        data = np.array(image)
-        height, width, channels = data.shape
+            # Convert to numpy array
+            data = np.array(image)
+            height, width, channels = data.shape
 
-        # Create QImage from numpy array
-        bytes_per_line = channels * width
-        qimage = QImage(
-            data.data,
-            width,
-            height,
-            bytes_per_line,
-            QImage.Format_RGB888
-        )
+            # Create QImage from numpy array
+            bytes_per_line = channels * width
+            qimage = QImage(
+                data.data,
+                width,
+                height,
+                bytes_per_line,
+                QImage.Format_RGB888
+            )
 
-        return QPixmap.fromImage(qimage)
+            return QPixmap.fromImage(qimage)
+        except Exception as e:
+            logger.error(f"Failed to convert image to pixmap: {e}")
+            return QPixmap()
 
     def update_preview(self, image: Image.Image):
         """Update preview with new image.
@@ -75,6 +79,7 @@ class PreviewWidget(QWidget):
             image: PIL Image to display
         """
         try:
+            logger.debug(f"Updating preview with image size: {image.size}")
             self.current_image = image
 
             # Convert PIL image to QPixmap
@@ -88,6 +93,7 @@ class PreviewWidget(QWidget):
             )
 
             self.preview_label.setPixmap(scaled)
+            logger.debug("Preview updated successfully")
 
         except Exception as e:
             logger.error(f"Failed to update preview: {e}")

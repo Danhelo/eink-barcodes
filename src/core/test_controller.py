@@ -8,7 +8,7 @@ import time
 from typing import List, Dict, Any, Optional, Union, Callable
 from PIL import Image                                                                                    
                                                                                                         
-from .display_manager import BaseDisplayManager, DisplayManager
+from .display_manager import BaseDisplayManager, DisplayManager, DisplayConfig
 from .state_manager import StateManager, TestState, TestContext
 from .test_config import TestConfig                                                                      
                                                                                                         
@@ -56,8 +56,18 @@ class TestController:
         try:
             self.state_manager.transition_to(TestState.INITIALIZING)
 
+            # Create display config with transformations
+            config = DisplayConfig(
+                virtual=virtual,
+                vcom=vcom
+            )
+            if hasattr(self.current_test, 'transformations'):
+                config.transformations = self.current_test.transformations
+
             if self.display_manager is None:
-                self.display_manager = await DisplayManager.create(virtual=virtual, vcom=vcom)
+                self.display_manager = await DisplayManager.create(
+                    config=config
+                )
                                                                                                         
             self.state_manager.transition_to(TestState.READY)
             return True
@@ -83,6 +93,7 @@ class TestController:
         self._cancel_requested = False
         self.current_test = config                                                                       
 
+        logger.debug(f"Running test with config: {vars(config)}")
         # Create test context with unique ID
         test_id = f"test_{int(time.time())}"
         test_context = TestContext(

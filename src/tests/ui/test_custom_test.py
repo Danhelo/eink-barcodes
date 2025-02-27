@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
 from PyQt6.QtTest import QTest
 import sys
+import numpy as np
 from pathlib import Path
 from PIL import Image
 from src.ui.pages.custom_test import CustomTestPage
@@ -203,6 +204,28 @@ class TestCustomTestPage(BaseTestCase):
         # Verify reasonable performance
         avg_time = sum(times) / len(times)
         self.assertLess(avg_time, 0.5)  # Should update in under 500ms
+
+    @staticmethod
+    def _get_image_stats(image):
+        """Calculate basic image statistics."""
+        arr = np.array(image)
+        return {
+            'mean': np.mean(arr),
+            'std': np.std(arr)
+        }
+
+    @classmethod
+    def create_test_image(cls, size=(200, 100)):
+        """Create a test barcode-like image."""
+        image = Image.new('L', size, 255)  # White background
+        draw = Image.ImageDraw.Draw(image)
+
+        # Draw some black bars
+        bar_width = size[0] // 10
+        for i in range(0, size[0], bar_width * 2):
+            draw.rectangle([(i, 0), (i + bar_width, size[1])], fill=0)
+
+        return image
 
     def tearDown(self):
         super().tearDown()
