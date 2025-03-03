@@ -60,6 +60,14 @@ class MainMenuPage(QWidget):
         self.custom_button.clicked.connect(self.on_custom_test)
         layout.addWidget(self.custom_button, 0, Qt.AlignCenter)
         
+        layout.addSpacing(20)
+
+        # Generate Barcodes button
+        self.generate_button = QPushButton("Generate Barcodes")
+        self.generate_button.setMinimumSize(200, 60)
+        self.generate_button.clicked.connect(self.on_generate)
+        layout.addWidget(self.generate_button, 0, Qt.AlignCenter)
+
         layout.addStretch()
         
         # Exit button
@@ -79,3 +87,9 @@ class MainMenuPage(QWidget):
         """Handle custom test button click."""
         if self.main_window:
             self.main_window.show_custom_test()
+
+    @pyqtSlot()
+    def on_generate(self):
+        """Handle generate barcodes button click."""
+        if self.main_window:
+            self.main_window.show_generate()

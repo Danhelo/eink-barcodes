@@ -7,6 +7,8 @@ import asyncio
 from .pages.menu_page import MainMenuPage
 from .pages.quick_page import QuickTestPage
 from .pages.custom_page import CustomTestPage
+from .pages.generate_page import BarcodeGeneratePage
+
 from ..utils.style import apply_stylesheet
 
 logger = logging.getLogger(__name__)
@@ -46,11 +48,15 @@ class MainWindow(QMainWindow):
         self.menu_page = MainMenuPage(self)
         self.quick_test_page = QuickTestPage(self, self.controller)
         self.custom_test_page = CustomTestPage(self, self.controller)
+        self.generate_page = BarcodeGeneratePage(self, self.controller)
+
         
         # Add pages to stack
         self.stacked_widget.addWidget(self.menu_page)
         self.stacked_widget.addWidget(self.quick_test_page)
         self.stacked_widget.addWidget(self.custom_test_page)
+        self.stacked_widget.addWidget(self.generate_page)
+
         
         # Show menu page initially
         self.show_main_menu()
@@ -66,6 +72,10 @@ class MainWindow(QMainWindow):
     def show_custom_test(self):
         """Show the custom test page."""
         self.stacked_widget.setCurrentWidget(self.custom_test_page)
+
+    def show_generate(self):
+        """Show the barcode generation page."""
+        self.stacked_widget.setCurrentWidget(self.generate_page)
         
     def closeEvent(self, event):
         """Handle window close event."""
