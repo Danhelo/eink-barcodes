@@ -367,8 +367,8 @@ class BarcodeGeneratePage(BasePage):
             self.status_label.setText("Sending request to barcode generation service...")
             
             # Import here to avoid circular imports
-            from ..utils.barcode_api import generate_barcodes
-            from ..utils.download import download_and_unzip_s3_file
+            from src.utils.barcode_api import generate_barcodes
+            from src.utils.download import download_and_unzip_s3_file
             
             # Call the API service
             s3_url = await generate_barcodes(api_config)
