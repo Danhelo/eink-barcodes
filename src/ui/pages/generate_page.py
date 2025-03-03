@@ -1,4 +1,14 @@
-# src/ui/pages/generate_page.py
+def _create_preview(self):
+        """Create the preview widget.
+        
+        Returns:
+            PreviewWidget: Preview widget instance
+        """
+        preview = super()._create_preview()
+        # We need to manually set the transform pipeline for generate_page
+        if hasattr(self.controller, '_transform_pipeline'):
+            preview.set_transform_pipeline(self.controller._transform_pipeline)
+        return preview# src/ui/pages/generate_page.py
 from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QSpinBox,
     QGroupBox, QCheckBox, QLineEdit, QTabWidget, QPushButton,
@@ -345,16 +355,23 @@ class BarcodeGeneratePage(BasePage):
         # Log file path for debugging
         logger.info(f"Loading image: {file_path}")
         
+        # Make sure preview is created if it doesn't exist yet
+        if not hasattr(self, 'preview') or not self.preview:
+            self.preview = self._create_preview()
+            
         # Load the image into the preview
-        if hasattr(self, 'preview') and self.preview:
-            success = self.preview.load_image(file_path)
-            if success:
-                self.status_label.setText(f"Loaded: {self.image_dropdown.currentText()}")
-                # Force an update of the preview
-                self.preview.update_preview()
-            else:
-                self.status_label.setText(f"Failed to load: {self.image_dropdown.currentText()}")
-                logger.error(f"Failed to load image: {file_path}")
+        success = self.preview.load_image(file_path)
+        if success:
+            self.status_label.setText(f"Loaded: {self.image_dropdown.currentText()}")
+            
+            # Set up basic transformations to ensure proper display
+            transformations = {
+                'center': {'width': 800, 'height': 600}
+            }
+            self.preview.update_preview(transformations)
+        else:
+            self.status_label.setText(f"Failed to load: {self.image_dropdown.currentText()}")
+            logger.error(f"Failed to load image: {file_path}")
     
     def _open_results_folder(self, folder_path):
         """Open the folder containing generated barcodes."""

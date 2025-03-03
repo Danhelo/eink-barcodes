@@ -112,12 +112,12 @@ class BasePage(QWidget):
         controls.addWidget(self.back_button)
         
         # Start button
-        self.start_button = QPushButton("Start Test")
+        self.start_button = QPushButton("Start")
         self.start_button.clicked.connect(self.on_start)
         controls.addWidget(self.start_button)
         
         # Stop button
-        self.stop_button = QPushButton("Stop Test")
+        self.stop_button = QPushButton("Stop")
         self.stop_button.clicked.connect(self.on_stop)
         self.stop_button.setEnabled(False)
         controls.addWidget(self.stop_button)
