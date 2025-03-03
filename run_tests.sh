@@ -13,7 +13,7 @@ source venv/bin/activate
 
 # Install requirements
 echo "Installing requirements..."
-pip install -r requirements.txt
+pip install -r requirements.txt --break-
 
 # Create examples directory if it doesn't exist
 mkdir -p examples

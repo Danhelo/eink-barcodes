@@ -7,9 +7,10 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
 # Create virtual environment if it doesn't exist
+# CHANGED: Added --system-site-packages flag to access system PyQt5
 if [ ! -d "venv" ]; then
-    echo "Creating virtual environment..."
-    python3 -m venv venv
+    echo "Creating virtual environment with system packages..."
+    python3 -m venv --system-site-packages venv
 fi
 
 # Activate virtual environment
@@ -18,7 +19,9 @@ source venv/bin/activate
 # Install requirements if needed
 if [ ! -f ".requirements_installed" ]; then
     echo "Installing requirements..."
-    pip install -r requirements.txt
+    # ADDED: Skip trying to reinstall PyQt5 via pip
+    grep -v "PyQt" requirements.txt > requirements_filtered.txt
+    pip install -r requirements_filtered.txt
     touch .requirements_installed
 fi
 
@@ -68,6 +71,13 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# ADDED: Debug information
+echo "Debug info:"
+which python
+python -c "import sys; print(sys.path)"
+echo "Attempting to import PyQt5..."
+python -c "import PyQt5; print('PyQt5 found at:', PyQt5.__file__)"
 
 # Run the application
 if [ "$GUI_MODE" = true ]; then
