@@ -1,4 +1,4 @@
-#!/Users/helodan/Desktop/E-ink/E-ink-repo/eink-barcodes/venv/bin/python3.12
+#!/home/testinghardware2/Desktop/E-Ink-v3/venv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys

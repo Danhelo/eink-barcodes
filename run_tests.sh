@@ -1,52 +1,53 @@
 #!/bin/bash
-
-# Exit on any error
+# File: run_tests.sh
 set -e
 
-echo "Starting test suite setup and execution..."
-
-# Function to print section headers
-print_header() {
-    echo
-    echo "=== $1 ==="
-    echo
-}
-
-# Function to check command success
-check_success() {
-    if [ $? -eq 0 ]; then
-        echo "✓ $1 successful"
-    else
-        echo "✗ $1 failed"
-        exit 1
-    fi
-}
-
-# Ensure we're in the correct directory
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd "$SCRIPT_DIR"
-
-# Install pytest and test dependencies directly
-print_header "Installing test dependencies"
-pip install pytest pytest-qt pytest-cov pytest-asyncio --break-system-packages #remove arg if not in the RPi
-check_success "Test dependencies installation"
-
-# Set QT_QPA_PLATFORM for headless testing if no display is available
-if [ -z "${DISPLAY}" ]; then
-    export QT_QPA_PLATFORM=offscreen
-    echo "Set QT_QPA_PLATFORM=offscreen for headless testing"
+# Create virtual environment if it doesn't exist
+if [ ! -d "venv" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv venv
 fi
 
-# Run the tests
-print_header "Running tests"
-python3 -m pytest \
-    --verbose \
-    --cov=src \
-    --cov-report=term-missing \
-    --cov-report=html \
-    -v \
-    src/tests/
-check_success "Test execution"
+# Activate virtual environment
+source venv/bin/activate
 
-print_header "Test Results"
-echo "Coverage report has been generated in htmlcov/index.html"
+# Install requirements
+echo "Installing requirements..."
+pip install -r requirements.txt --break-
+
+# Create examples directory if it doesn't exist
+mkdir -p examples
+
+# Check if there are any images in the examples directory
+if [ -z "$(find examples -maxdepth 1 -name "*.png" -o -name "*.jpg" -o -name "*.jpeg" 2>/dev/null)" ]; then
+    echo "No images found in examples directory. Creating a sample image..."
+    
+    # Run a simple Python script to create one sample image
+    python -c "
+from PIL import Image
+import os
+
+# Create directory if it doesn't exist
+os.makedirs('examples', exist_ok=True)
+
+# Create a simple test image
+img = Image.new('L', (200, 100), 255)  # White background
+for x in range(0, 200, 10):
+    for y in range(100):
+        if x % 20 < 10:
+            img.putpixel((x, y), 0)
+img.save('examples/sample_barcode.png')
+print('Created sample image: examples/sample_barcode.png')
+"
+fi
+
+# Run tests with coverage
+echo "Running tests with coverage..."
+# Use --virtual for tests to ensure they run in any environment
+pytest tests/ -v --cov=src --cov-report=term
+
+# Run core test example with hardware display (now default)
+echo -e "\nRunning core test example with rotation and scaling on hardware..."
+python run_core_test.py --rotation 90 --scale 0.8 --delay 0.5
+
+echo -e "\nAll tests completed successfully!"

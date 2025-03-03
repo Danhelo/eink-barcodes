@@ -1,0 +1,81 @@
+# File: tests/test_config.py
+import pytest
+from src.core.config import TestConfig, DisplayConfig
+
+def test_test_config_creation():
+    """Test creating test configuration."""
+    config = TestConfig(
+        barcode_type="Code128",
+        image_paths=["/path/to/image1.png", "/path/to/image2.png"],
+        delay_between_images=0.5,
+        transformations={
+            'rotation': {'angle': 90},
+            'scale': {'factor': 1.2}
+        }
+    )
+    
+    assert config.barcode_type == "Code128"
+    assert len(config.image_paths) == 2
+    assert config.delay_between_images == 0.5
+    assert config.transformations['rotation']['angle'] == 90
+
+def test_test_config_serialization():
+    """Test serializing and deserializing test configuration."""
+    config = TestConfig(
+        barcode_type="QR",
+        image_paths=["/path/to/image1.png"],
+        delay_between_images=0.3,
+        repetitions=2,
+        transformations={
+            'rotation': {'angle': 180},
+            'scale': {'factor': 0.8}
+        },
+        extra_params={
+            'custom_param': 'value',
+            'another_param': 123
+        }
+    )
+    
+    # Convert to dict
+    config_dict = config.to_dict()
+    
+    # Create from dict
+    new_config = TestConfig.from_dict(config_dict)
+    
+    # Verify all properties preserved
+    assert new_config.barcode_type == config.barcode_type
+    assert new_config.image_paths == config.image_paths
+    assert new_config.delay_between_images == config.delay_between_images
+    assert new_config.repetitions == config.repetitions
+    assert new_config.transformations == config.transformations
+    assert new_config.extra_params['custom_param'] == 'value'
+    assert new_config.extra_params['another_param'] == 123
+
+def test_display_config():
+    """Test display configuration."""
+    config = DisplayConfig(
+        virtual=True,
+        vcom=-2.06,
+        dimensions=(1024, 768),
+        extra_params={
+            'spi_hz': 24000000,
+            'mirror': True
+        }
+    )
+    
+    # Convert to dict
+    config_dict = config.to_dict()
+    
+    assert config_dict['virtual'] is True
+    assert config_dict['vcom'] == -2.06
+    assert config_dict['dimensions'] == (1024, 768)
+    assert config_dict['spi_hz'] == 24000000
+    assert config_dict['mirror'] is True
+    
+    # Create from dict
+    new_config = DisplayConfig.from_dict(config_dict)
+    
+    assert new_config.virtual == config.virtual
+    assert new_config.vcom == config.vcom
+    assert new_config.dimensions == config.dimensions
+    assert new_config.extra_params['spi_hz'] == 24000000

@@ -1,20 +1,23 @@
-# E-Ink Barcodes Project Guidelines
+# E-ink Barcodes Project Guide
 
 ## Build & Test Commands
-- Install dependencies: `pip install -e .`
-- Run all tests: `python -m pytest --verbose --cov=src --cov-report=term-missing -v src/tests/`
-- Run single test file: `python -m pytest -v src/tests/path/to/test_file.py`
-- Run specific test: `python -m pytest -v src/tests/path/to/test_file.py::TestClass::test_method`
-- Code linting: `python -m pylint src/`
-- Type checking: `python -m mypy src/`
-- Formatting: `python -m black src/`
+- Setup environment: `./run.sh` (GUI mode) or `./run.sh --cli` (CLI mode)
+- Run all tests: `./run_tests.sh`
+- Run specific test: `pytest tests/test_file.py::test_function -v`
+- Run with coverage: `pytest tests/ --cov=src --cov-report=term`
+- Run core test: `python run_core_test.py --rotation <angle> --scale <factor> --delay <seconds>`
+- Virtual display mode: Add `--virtual` flag to commands
 
 ## Code Style Guidelines
-- **Imports**: Group imports by stdlib, third-party, local packages. Use absolute imports.
-- **Formatting**: Follow Black code style (line length 88). Use docstrings for all modules, classes, methods.
-- **Types**: Use type annotations for function arguments and return values.
-- **Naming**: snake_case for variables/functions, PascalCase for classes, constants in UPPER_CASE.
-- **Error handling**: Use explicit exception handling with specific exception types. Log errors appropriately.
-- **UI Components**: Follow Qt naming conventions for widgets. Always connect signals in initialize methods.
-- **Testing**: All new code should have unit tests. Maintain >= 85% code coverage.
-- **Documentation**: Include docstrings with Args, Returns, and Raises sections for public APIs.
+- **Imports**: Standard library → third-party → local (relative)
+- **Type hints**: Use typing module (Dict, List, Optional, Callable) consistently
+- **Naming**: Classes=PascalCase, functions/variables=snake_case, constants=UPPER_CASE
+- **Documentation**: Docstrings for classes/methods, inline comments for complex logic
+- **Error handling**: Try-except with detailed messages, proper error propagation
+- **Spacing**: 4-space indentation, blank lines between functions and logical sections
+- **Architecture**: Maintain core/UI separation, use observer pattern for state changes
+- **Async programming**: Use asyncio for display operations, mark tests with @pytest.mark.asyncio
+- **Testing**: Write comprehensive tests with proper fixtures, favor unit tests
+
+## Project Structure
+Core functionality in src/core/, UI in src/ui/, tests mirror src/ structure
