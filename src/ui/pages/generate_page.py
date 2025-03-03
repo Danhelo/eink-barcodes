@@ -82,24 +82,26 @@ class BarcodeGeneratePage(BasePage):
         content.addWidget(dir_group)
         
         # Preview controls
-        preview_controls = QHBoxLayout()
+        preview_group = QGroupBox("Preview")
+        self.preview_controls_layout = QHBoxLayout()
         
-        self.preview_label = QLabel("Preview:")
-        preview_controls.addWidget(self.preview_label)
+        self.preview_label = QLabel("Generated Images:")
+        self.preview_controls_layout.addWidget(self.preview_label)
         
-        self.refresh_preview_btn = QPushButton("Refresh Preview")
+        self.refresh_preview_btn = QPushButton("Refresh List")
         self.refresh_preview_btn.clicked.connect(self.on_refresh_preview)
-        preview_controls.addWidget(self.refresh_preview_btn)
+        self.preview_controls_layout.addWidget(self.refresh_preview_btn)
         
-        preview_controls.addStretch()
+        self.preview_controls_layout.addStretch()
         
-        # This button will be shown only after generation
+        # View all barcodes button
         self.view_results_button = QPushButton("View All Barcodes")
         self.view_results_button.clicked.connect(lambda: self._open_results_folder(self.dir_path.text()))
         self.view_results_button.hide()  # Hidden by default
-        preview_controls.addWidget(self.view_results_button)
+        self.preview_controls_layout.addWidget(self.view_results_button)
         
-        content.addLayout(preview_controls)
+        preview_group.setLayout(self.preview_controls_layout)
+        content.addWidget(preview_group)
         
         # Status label
         self.status_label = QLabel("Ready to generate barcodes")
@@ -267,7 +269,7 @@ class BarcodeGeneratePage(BasePage):
     def _preview_generated_barcodes(self, extract_to):
         """Preview the generated barcodes."""
         try:
-            # Find barcode images in the extract directory
+            # Find barcode images in the extract directory (recursively)
             barcode_files = []
             for root, _, files in os.walk(extract_to):
                 for file in files:
@@ -276,29 +278,83 @@ class BarcodeGeneratePage(BasePage):
             
             if not barcode_files:
                 logger.warning("No barcode images found for preview")
+                self.status_label.setText("No barcode images found in the selected directory")
                 return
                 
             # Sort files to ensure consistent preview
             barcode_files.sort()
             
-            # Load the first image into the preview
-            if hasattr(self, 'preview') and self.preview:
-                self.preview.load_image(barcode_files[0])
+            # Instead of automatically loading the first image,
+            # show a count of available images
+            self.status_label.setText(f"Found {len(barcode_files)} barcode images in {extract_to}")
+            
+            # Make sure the preview controls are visible
+            self.preview_label.setVisible(True)
+            self.refresh_preview_btn.setVisible(True)
+            
+            # Show the "View All Barcodes" button
+            self.view_results_button.show()
+            
+            # Create a dropdown for image selection if it doesn't exist
+            if not hasattr(self, 'image_dropdown') or not self.image_dropdown:
+                self.image_dropdown = QComboBox()
+                self.image_dropdown.setMinimumWidth(300)
+                self.preview_controls_layout.insertWidget(2, self.image_dropdown)
+                self.image_dropdown.currentIndexChanged.connect(self._on_image_selected)
                 
-                # Update status with file count
-                self.status_label.setText(f"Generated {len(barcode_files)} barcodes. Showing first image.")
+                # Add a load button
+                self.load_preview_btn = QPushButton("Load Selected")
+                self.load_preview_btn.clicked.connect(self._load_selected_image)
+                self.preview_controls_layout.insertWidget(3, self.load_preview_btn)
+            
+            # Populate the dropdown
+            self.image_dropdown.clear()
+            for file_path in barcode_files:
+                # Use the relative path for display
+                rel_path = os.path.relpath(file_path, extract_to)
+                self.image_dropdown.addItem(rel_path, file_path)
+            
+            # Select the first image
+            if self.image_dropdown.count() > 0:
+                self.image_dropdown.setCurrentIndex(0)
+                self._load_selected_image()
                 
-                # Add a button to view all barcodes
-                if not hasattr(self, 'view_results_button'):
-                    self.view_results_button = QPushButton("View All Barcodes")
-                    self.view_results_button.clicked.connect(lambda: self._open_results_folder(extract_to))
-                    self.layout().insertWidget(self.layout().count() - 1, self.view_results_button)
-                    self.view_results_button.show()
-                else:
-                    self.view_results_button.show()
-        
         except Exception as e:
             logger.error(f"Error previewing barcodes: {e}")
+            self.status_label.setText(f"Error browsing barcodes: {str(e)}")
+    
+    def _on_image_selected(self, index):
+        """Handle image selection from dropdown."""
+        # Just update the status - loading happens when the Load button is pressed
+        if index >= 0:
+            file_name = self.image_dropdown.currentText()
+            self.status_label.setText(f"Selected: {file_name}")
+    
+    def _load_selected_image(self):
+        """Load the currently selected image into the preview."""
+        if not hasattr(self, 'image_dropdown') or self.image_dropdown.count() == 0:
+            return
+            
+        # Get the full path from the item data
+        file_path = self.image_dropdown.currentData()
+        
+        if not file_path or not os.path.exists(file_path):
+            self.status_label.setText(f"Image not found: {file_path}")
+            return
+            
+        # Log file path for debugging
+        logger.info(f"Loading image: {file_path}")
+        
+        # Load the image into the preview
+        if hasattr(self, 'preview') and self.preview:
+            success = self.preview.load_image(file_path)
+            if success:
+                self.status_label.setText(f"Loaded: {self.image_dropdown.currentText()}")
+                # Force an update of the preview
+                self.preview.update_preview()
+            else:
+                self.status_label.setText(f"Failed to load: {self.image_dropdown.currentText()}")
+                logger.error(f"Failed to load image: {file_path}")
     
     def _open_results_folder(self, folder_path):
         """Open the folder containing generated barcodes."""

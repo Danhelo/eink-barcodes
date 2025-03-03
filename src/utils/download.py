@@ -61,7 +61,7 @@ def download_and_unzip_s3_file(s3_url: str, extract_to: str = '.') -> Tuple[bool
                     extracted_files.append(relative_path)
         
         logger.info(f"Successfully extracted {len(extracted_files)} barcode images to {extract_to}")
-        return True, f"Successfully downloaded and extracted {len(extracted_files)} barcode images."
+        return True, f"Successfully downloaded and extracted {len(extracted_files)} new barcode images."
         
     except requests.RequestException as e:
         logger.error(f"Download error: {e}")
