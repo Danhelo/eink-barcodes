@@ -40,7 +40,7 @@ class BarcodeGeneratePage(BasePage):
     BARCODE_TYPES = ["code128", "upca", "upce", "datamatrix"]
     
     # Available transformation effects
-    TRANSFORM_EFFECTS = ["none", "blur", "noise", "rotate", "perspective"]
+    TRANSFORM_EFFECTS = ["none", "blur"]
     
     def _create_content(self):
         """Create barcode generation controls."""
