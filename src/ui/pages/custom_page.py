@@ -148,21 +148,25 @@ class CustomTestPage(BasePage):
         return content
         
     def load_images_from_dir(self, directory):
-        """Load all images from a directory into the list."""
+        """Load all images recursively from a directory into the list."""
         if not os.path.exists(directory):
             logger.warning(f"Directory not found: {directory}")
             return
             
         self.image_list.clear()
         
-        for file in os.listdir(directory):
-            if file.lower().endswith(('.png', '.jpg', '.jpeg')):
-                path = os.path.join(directory, file)
-                item = QListWidgetItem(file)
-                item.setData(Qt.UserRole, path)
-                self.image_list.addItem(item)
+        # Recursively find images in the directory
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    path = os.path.join(root, file)
+                    # Use relative path for display if inside the directory
+                    display_name = os.path.relpath(path, directory)
+                    item = QListWidgetItem(display_name)
+                    item.setData(Qt.UserRole, path)
+                    self.image_list.addItem(item)
                 
-        logger.info(f"Loaded {self.image_list.count()} images from {directory}")
+        logger.info(f"Loaded {self.image_list.count()} images recursively from {directory}")
         
         # Select first item
         if self.image_list.count() > 0:

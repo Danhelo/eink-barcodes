@@ -34,7 +34,8 @@ class QuickTestPage(BasePage):
         
         type_layout.addWidget(QLabel("Type:"))
         self.barcode_combo = QComboBox()
-        self.barcode_combo.addItems(["Code128", "QR Code", "DataMatrix"])
+        # Match types from generate_page (capitalized for display)
+        self.barcode_combo.addItems(["code128", "upca", "upce", "datamatrix"])
         self.barcode_combo.currentIndexChanged.connect(self.on_barcode_changed)
         type_layout.addWidget(self.barcode_combo)
         
@@ -104,27 +105,43 @@ class QuickTestPage(BasePage):
         self.update_preview()
         
     def load_barcode_images(self):
-        """Load barcode images of the selected type."""
+        """Load barcode images of the selected type recursively."""
         barcode_type = self.barcode_combo.currentText()
         self.barcode_images = []
         
-        # First try specific directory for this type
-        dir_path = os.path.join('examples', barcode_type.replace(" ", "_"))
+        # Define directory mapping for different barcode types
+        # This handles both capitalization and folder naming conventions
+        dir_mapping = {
+            "code128": ["code128", "Code128"],
+            "upca": ["upca", "UPCA"],
+            "upce": ["upce", "UPCE"],
+            "datamatrix": ["datamatrix", "DataMatrix"]
+        }
         
-        # If not found, try the general examples directory
-        if not os.path.exists(dir_path):
+        # Try each possible directory name for this type
+        dir_found = False
+        if barcode_type in dir_mapping:
+            for dir_name in dir_mapping[barcode_type]:
+                dir_path = os.path.join('examples', dir_name)
+                if os.path.exists(dir_path):
+                    dir_found = True
+                    break
+        
+        # If not found, fall back to the general examples directory
+        if not dir_found:
             dir_path = 'examples'
             
-        # Find images
+        # Find images recursively
         if os.path.exists(dir_path):
-            for file in os.listdir(dir_path):
-                if file.lower().endswith(('.png', '.jpg', '.jpeg')):
-                    full_path = os.path.join(dir_path, file)
-                    self.barcode_images.append(full_path)
+            for root, _, files in os.walk(dir_path):
+                for file in files:
+                    if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                        full_path = os.path.join(root, file)
+                        self.barcode_images.append(full_path)
                     
         # Update preview with first image if available
         if self.barcode_images:
-            logger.info(f"Loaded {len(self.barcode_images)} images from {dir_path}")
+            logger.info(f"Loaded {len(self.barcode_images)} images recursively from {dir_path}")
             self.preview.load_image(self.barcode_images[0])
             self.update_preview()
         else:
@@ -157,8 +174,11 @@ class QuickTestPage(BasePage):
             )
             return None
             
+        # Ensure barcode type formatting is consistent regardless of how it's stored in dropdown
+        barcode_type = self.barcode_combo.currentText()
+        
         return TestConfig(
-            barcode_type=self.barcode_combo.currentText(),
+            barcode_type=barcode_type,
             image_paths=self.barcode_images,
             delay_between_images=0.5,
             transformations={
