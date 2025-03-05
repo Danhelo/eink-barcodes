@@ -33,7 +33,7 @@ class MainWindow(QMainWindow):
         self.controller = controller
         
         self.setWindowTitle("E-ink Barcode Testing")
-        self.setMinimumSize(900, 700)
+        self.setMinimumSize(1280, 720)
         
         self._setup_ui()
         apply_stylesheet(self)
