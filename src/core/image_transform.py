@@ -56,17 +56,45 @@ class RotationTransformer:
         return image.rotate(angle, resample=Image.BICUBIC, expand=expand, fillcolor=background)
 
 class ScaleTransformer:
-    """Scales an image by specified factor."""
+    """Scales an image by specified factor or to a specific width in mm."""
+    
+    # Display characteristics constants - from exact specifications
+    DISPLAY_WIDTH_MM = 122.356  # Display width in mm
+    DISPLAY_HEIGHT_MM = 90.584  # Display height in mm
+    DISPLAY_WIDTH_PX = 1448     # Display width in pixels
+    DISPLAY_HEIGHT_PX = 1072    # Display height in pixels
     
     def transform(self, image: Image.Image, params: Dict[str, Any]) -> Image.Image:
-        scale = params.get('factor', 1.0)
-        
-        if scale == 1.0:
+        # Check if we're using a scaling factor or absolute width
+        if 'factor' in params:
+            # Original relative scaling method
+            scale = params.get('factor', 1.0)
+            
+            if scale == 1.0:
+                return image
+                
+            new_width = int(image.width * scale)
+            new_height = int(image.height * scale)
+            
+        elif 'width_mm' in params:
+            # New absolute width scaling method
+            width_mm = params.get('width_mm')
+            
+            # Calculate pixels per mm directly from display specs
+            pixels_per_mm = self.DISPLAY_WIDTH_PX / self.DISPLAY_WIDTH_MM
+            
+            # Calculate the target width in pixels
+            target_width_px = int(width_mm * pixels_per_mm)
+            
+            # Calculate the scaling factor to maintain aspect ratio
+            scale = target_width_px / image.width
+            
+            new_width = target_width_px
+            new_height = int(image.height * scale)
+        else:
+            # No scaling needed
             return image
             
-        new_width = int(image.width * scale)
-        new_height = int(image.height * scale)
-        
         return image.resize((new_width, new_height), Image.BICUBIC)
 
 class CenteringTransformer:

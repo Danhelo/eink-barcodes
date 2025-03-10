@@ -2,7 +2,7 @@
 from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QPushButton,
     QGroupBox, QSpinBox, QDoubleSpinBox, QCheckBox, QFileDialog,
-    QMessageBox, QListWidgetItem
+    QMessageBox, QListWidgetItem, QComboBox, QWidget
 )
 from PyQt5.QtCore import Qt, pyqtSlot
 import logging
@@ -75,19 +75,51 @@ class CustomTestPage(BasePage):
         rotation_layout.addWidget(self.rotation_spin)
         rotation_layout.addWidget(QLabel("degrees"))
         transforms_layout.addLayout(rotation_layout)
-        
-        # Scale
-        scale_layout = QHBoxLayout()
-        scale_layout.addWidget(QLabel("Scale:"))
+
+        scale_group = QGroupBox("Scaling Options")
+        scale_layout = QVBoxLayout()
+
+        # Scale Type Selection
+        scale_type_layout = QHBoxLayout()
+        scale_type_layout.addWidget(QLabel("Scaling Type:"))
+        self.scale_type_combo = QComboBox()
+        self.scale_type_combo.addItems(["Relative (factor)", "Absolute (mm)"])
+        self.scale_type_combo.currentIndexChanged.connect(self.on_scale_type_changed)
+        scale_type_layout.addWidget(self.scale_type_combo)
+        scale_layout.addLayout(scale_type_layout)
+
+        # Relative Scaling (spinner) - in a container widget
+        self.relative_scale_widget = QWidget()
+        relative_scale_layout = QHBoxLayout(self.relative_scale_widget)
+        relative_scale_layout.setContentsMargins(0, 0, 0, 0)
+        relative_scale_layout.addWidget(QLabel("Scale Factor:"))
         self.scale_spin = QDoubleSpinBox()
         self.scale_spin.setRange(0.1, 5.0)
         self.scale_spin.setSingleStep(0.1)
         self.scale_spin.setDecimals(1)
         self.scale_spin.setValue(1.0)
         self.scale_spin.valueChanged.connect(self.on_settings_changed)
-        scale_layout.addWidget(self.scale_spin)
-        scale_layout.addWidget(QLabel("x"))
-        transforms_layout.addLayout(scale_layout)
+        relative_scale_layout.addWidget(self.scale_spin)
+        relative_scale_layout.addWidget(QLabel("x"))
+        scale_layout.addWidget(self.relative_scale_widget)
+
+        # Absolute Scaling (mm input) - in a container widget
+        self.absolute_scale_widget = QWidget()
+        absolute_scale_layout = QHBoxLayout(self.absolute_scale_widget)
+        absolute_scale_layout.setContentsMargins(0, 0, 0, 0)
+        absolute_scale_layout.addWidget(QLabel("Width:"))
+        self.width_mm_spin = QDoubleSpinBox()
+        self.width_mm_spin.setRange(5.0, 200.0)  # 5mm to 200mm
+        self.width_mm_spin.setSingleStep(1.0)
+        self.width_mm_spin.setDecimals(1)
+        self.width_mm_spin.setValue(20.0)  # 20mm default
+        self.width_mm_spin.setSuffix(" mm")
+        self.width_mm_spin.valueChanged.connect(self.on_settings_changed)
+        absolute_scale_layout.addWidget(self.width_mm_spin)
+        scale_layout.addWidget(self.absolute_scale_widget)
+
+        scale_group.setLayout(scale_layout)
+        transforms_layout.addWidget(scale_group)
         
         # Mirror
         self.mirror_check = QCheckBox("Mirror Horizontally")
@@ -220,16 +252,38 @@ class CustomTestPage(BasePage):
         """Handle settings changes."""
         self.update_preview()
         
+    def on_scale_type_changed(self, index):
+        """Handle switching between relative and absolute scaling."""
+        is_relative = index == 0
+        self.relative_scale_widget.setVisible(is_relative)
+        self.absolute_scale_widget.setVisible(not is_relative)
+        self.update_preview()
+
     def update_preview(self):
         """Update preview with current settings."""
         transformations = {
             'rotation': {
                 'angle': self.rotation_spin.value()
-            },
-            'scale': {
-                'factor': self.scale_spin.value()
             }
         }
+        
+        # Add scale transformation based on selected type
+        if hasattr(self, 'scale_type_combo'):
+            if self.scale_type_combo.currentIndex() == 0:
+                # Relative scaling
+                transformations['scale'] = {
+                    'factor': self.scale_spin.value()
+                }
+            else:
+                # Absolute scaling (mm)
+                transformations['scale'] = {
+                    'width_mm': self.width_mm_spin.value()
+                }
+        else:
+            # Fallback to original behavior
+            transformations['scale'] = {
+                'factor': self.scale_spin.value()
+            }
         
         if self.mirror_check.isChecked():
             transformations['mirror'] = {'horizontal': True}
@@ -238,7 +292,7 @@ class CustomTestPage(BasePage):
             transformations['center'] = {'width': 800, 'height': 600}
             
         self.preview.update_preview(transformations)
-        
+
     def get_test_config(self):
         """Get test configuration from UI settings."""
         # Get selected image paths
@@ -264,9 +318,26 @@ class CustomTestPage(BasePage):
                 
         # Create transformations dict
         transformations = {
-            'rotation': {'angle': self.rotation_spin.value()},
-            'scale': {'factor': self.scale_spin.value()}
+            'rotation': {'angle': self.rotation_spin.value()}
         }
+        
+        # Add scale transformation based on selected type
+        if hasattr(self, 'scale_type_combo'):
+            if self.scale_type_combo.currentIndex() == 0:
+                # Relative scaling
+                transformations['scale'] = {
+                    'factor': self.scale_spin.value()
+                }
+            else:
+                # Absolute scaling (mm)
+                transformations['scale'] = {
+                    'width_mm': self.width_mm_spin.value()
+                }
+        else:
+            # Fallback to original behavior
+            transformations['scale'] = {
+                'factor': self.scale_spin.value()
+            }
         
         if self.mirror_check.isChecked():
             transformations['mirror'] = {'horizontal': True}
