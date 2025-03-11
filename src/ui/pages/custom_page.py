@@ -2,9 +2,10 @@
 from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QPushButton,
     QGroupBox, QSpinBox, QDoubleSpinBox, QCheckBox, QFileDialog,
-    QMessageBox, QListWidgetItem, QComboBox, QWidget
+    QMessageBox, QListWidgetItem, QComboBox, QWidget, QScrollArea, QFrame, QGridLayout,
+    QLayout
 )
-from PyQt5.QtCore import Qt, pyqtSlot
+from PyQt5.QtCore import Qt, pyqtSlot, Qt
 import logging
 import os
 
@@ -40,6 +41,7 @@ class CustomTestPage(BasePage):
         self.image_list = QListWidget()
         self.image_list.setSelectionMode(QListWidget.ExtendedSelection)
         self.image_list.itemSelectionChanged.connect(self.on_selection_changed)
+        self.image_list.setMinimumHeight(150)  # Ensure a reasonable minimum height
         image_layout.addWidget(self.image_list)
         
         # Image controls
@@ -55,125 +57,171 @@ class CustomTestPage(BasePage):
         
         image_layout.addLayout(image_buttons)
         image_group.setLayout(image_layout)
-        main_layout.addWidget(image_group)
+        main_layout.addWidget(image_group, 1)  # Give weight of 1 to the image section
         
-        # Right column: Test settings
+        # Right column: Test settings (in a scroll area to handle more complex controls)
+        settings_scroll = QScrollArea()
+        settings_scroll.setWidgetResizable(True)
+        settings_scroll.setFrameShape(QFrame.NoFrame)
+        
+        settings_container = QWidget()
+        settings_layout = QVBoxLayout(settings_container)
+        
         settings_group = QGroupBox("Test Settings")
-        settings_layout = QVBoxLayout()
+        settings_inner_layout = QVBoxLayout()
         
         # Transformation controls
         transforms_group = QGroupBox("Transformations")
-        transforms_layout = QVBoxLayout()
+        transforms_layout = QVBoxLayout()  # Switch back to vertical layout for simplicity
         
-        # Rotation
+        # Rotation with better alignment
         rotation_layout = QHBoxLayout()
-        rotation_layout.addWidget(QLabel("Rotation:"))
+        rotation_label = QLabel("Rotation:")
+        rotation_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        rotation_label.setMinimumWidth(80)
+        rotation_layout.addWidget(rotation_label)
+
         self.rotation_spin = QSpinBox()
         self.rotation_spin.setRange(0, 360)
         self.rotation_spin.setSingleStep(15)
         self.rotation_spin.valueChanged.connect(self.on_settings_changed)
         rotation_layout.addWidget(self.rotation_spin)
-        rotation_layout.addWidget(QLabel("degrees"))
+
+        degrees_label = QLabel("degrees")
+        degrees_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        degrees_label.setMinimumWidth(60)
+        rotation_layout.addWidget(degrees_label)
+
         transforms_layout.addLayout(rotation_layout)
-
+        
+        # Scale group
         scale_group = QGroupBox("Scaling Options")
-        scale_layout = QVBoxLayout()
+        scale_layout = QGridLayout()  # Use grid layout for perfect alignment
+        scale_layout.setColumnStretch(1, 1)  # Make the widget column stretch
+        
+        # Row 0: Scale Type
+        scale_type_label = QLabel("Scaling Type:")
+        scale_type_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        scale_layout.addWidget(scale_type_label, 0, 0)
 
-        # Scale Type Selection
-        scale_type_layout = QHBoxLayout()
-        scale_type_layout.addWidget(QLabel("Scaling Type:"))
         self.scale_type_combo = QComboBox()
         self.scale_type_combo.addItems(["Relative (factor)", "Absolute (mm)"])
         self.scale_type_combo.currentIndexChanged.connect(self.on_scale_type_changed)
-        scale_type_layout.addWidget(self.scale_type_combo)
-        scale_layout.addLayout(scale_type_layout)
+        scale_layout.addWidget(self.scale_type_combo, 0, 1)
 
-        # Relative Scaling (spinner) - in a container widget
-        self.relative_scale_widget = QWidget()
-        relative_scale_layout = QHBoxLayout(self.relative_scale_widget)
-        relative_scale_layout.setContentsMargins(0, 0, 0, 0)
-        relative_scale_layout.addWidget(QLabel("Scale Factor:"))
+        # Row 1: Relative Scaling (will be hidden/shown based on selection)
+        scale_factor_label = QLabel("Scale Factor:")
+        scale_factor_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        scale_layout.addWidget(scale_factor_label, 1, 0)
+
+        scale_factor_layout = QHBoxLayout()
         self.scale_spin = QDoubleSpinBox()
         self.scale_spin.setRange(0.1, 5.0)
         self.scale_spin.setSingleStep(0.1)
         self.scale_spin.setDecimals(1)
         self.scale_spin.setValue(1.0)
         self.scale_spin.valueChanged.connect(self.on_settings_changed)
-        relative_scale_layout.addWidget(self.scale_spin)
-        relative_scale_layout.addWidget(QLabel("x"))
-        scale_layout.addWidget(self.relative_scale_widget)
+        scale_factor_layout.addWidget(self.scale_spin)
+        scale_factor_layout.addWidget(QLabel("x"))
+        scale_factor_layout.addStretch(1)  # Add stretch to align left
+        scale_layout.addLayout(scale_factor_layout, 1, 1)
 
-        # Absolute Scaling (mm input) - in a container widget
-        self.absolute_scale_widget = QWidget()
-        absolute_scale_layout = QHBoxLayout(self.absolute_scale_widget)
-        absolute_scale_layout.setContentsMargins(0, 0, 0, 0)
-        absolute_scale_layout.addWidget(QLabel("Width:"))
+        # Row 2: Absolute Scaling (will be hidden/shown based on selection)
+        width_label = QLabel("Width:")
+        width_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        scale_layout.addWidget(width_label, 2, 0)
+
+        width_layout = QHBoxLayout()
         self.width_mm_spin = QDoubleSpinBox()
-        self.width_mm_spin.setRange(5.0, 200.0)  # 5mm to 200mm
+        self.width_mm_spin.setRange(5.0, 200.0)
         self.width_mm_spin.setSingleStep(1.0)
         self.width_mm_spin.setDecimals(1)
-        self.width_mm_spin.setValue(20.0)  # 20mm default
+        self.width_mm_spin.setValue(20.0)
         self.width_mm_spin.setSuffix(" mm")
         self.width_mm_spin.valueChanged.connect(self.on_settings_changed)
-        absolute_scale_layout.addWidget(self.width_mm_spin)
-        scale_layout.addWidget(self.absolute_scale_widget)
+        width_layout.addWidget(self.width_mm_spin)
+        width_layout.addStretch(1)  # Add stretch to align left
+        scale_layout.addLayout(width_layout, 2, 1)
 
         scale_group.setLayout(scale_layout)
         transforms_layout.addWidget(scale_group)
+
+        # Store references to rows instead of widgets for visibility control
+        self.scale_factor_row = [scale_factor_label, scale_factor_layout]
+        self.width_mm_row = [width_label, width_layout]
+
+        # Initially show the right widgets based on combo selection
+        self.on_scale_type_changed(self.scale_type_combo.currentIndex())
         
+        # Checkboxes with better spacing
+        checkbox_layout = QVBoxLayout()
+        checkbox_layout.setSpacing(10)  # Add space between checkboxes
+
         # Mirror
         self.mirror_check = QCheckBox("Mirror Horizontally")
         self.mirror_check.stateChanged.connect(self.on_settings_changed)
-        transforms_layout.addWidget(self.mirror_check)
-        
+        checkbox_layout.addWidget(self.mirror_check)
+
         # Auto-center
         self.center_check = QCheckBox("Auto-center on Display")
         self.center_check.setChecked(True)
         self.center_check.stateChanged.connect(self.on_settings_changed)
-        transforms_layout.addWidget(self.center_check)
-        
+        checkbox_layout.addWidget(self.center_check)
+
+        transforms_layout.addLayout(checkbox_layout)
         transforms_group.setLayout(transforms_layout)
-        settings_layout.addWidget(transforms_group)
         
-        # Test execution controls
+        # Test execution controls with better alignment
         execution_group = QGroupBox("Execution")
-        execution_layout = QVBoxLayout()
-        
-        # Delay
-        delay_layout = QHBoxLayout()
-        delay_layout.addWidget(QLabel("Delay:"))
+        execution_layout = QGridLayout()  # Use grid layout for consistent alignment
+        execution_layout.setColumnStretch(1, 1)  # Make the control column stretch
+
+        # Delay with better alignment - row 0
+        delay_label = QLabel("Delay:")
+        delay_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        delay_label.setMinimumWidth(80)
+        execution_layout.addWidget(delay_label, 0, 0)
+
+        delay_input_layout = QHBoxLayout()
         self.delay_spin = QDoubleSpinBox()
         self.delay_spin.setRange(0.1, 10.0)
         self.delay_spin.setSingleStep(0.1)
         self.delay_spin.setDecimals(1)
         self.delay_spin.setValue(1.0)
-        delay_layout.addWidget(self.delay_spin)
-        delay_layout.addWidget(QLabel("seconds"))
-        execution_layout.addLayout(delay_layout)
-        
-        # Repetitions
-        repeat_layout = QHBoxLayout()
-        repeat_layout.addWidget(QLabel("Repetitions:"))
+        delay_input_layout.addWidget(self.delay_spin)
+        delay_input_layout.addWidget(QLabel("seconds"))
+        delay_input_layout.addStretch(1)  # Add stretch to align left
+        execution_layout.addLayout(delay_input_layout, 0, 1)
+
+        # Repetitions with better alignment - row 1
+        repeat_label = QLabel("Repetitions:")
+        repeat_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        repeat_label.setMinimumWidth(80)
+        execution_layout.addWidget(repeat_label, 1, 0)
+
+        repeat_input_layout = QHBoxLayout()
         self.repeat_spin = QSpinBox()
         self.repeat_spin.setRange(1, 10)
         self.repeat_spin.setValue(1)
-        repeat_layout.addWidget(self.repeat_spin)
-        execution_layout.addLayout(repeat_layout)
-        
+        repeat_input_layout.addWidget(self.repeat_spin)
+        repeat_input_layout.addStretch(1)  # Add stretch to align left
+        execution_layout.addLayout(repeat_input_layout, 1, 1)
+
         execution_group.setLayout(execution_layout)
-        settings_layout.addWidget(execution_group)
+        settings_inner_layout.addWidget(transforms_group)
+        settings_inner_layout.addWidget(execution_group)
         
         # Fill remaining space
-        settings_layout.addStretch()
+        settings_inner_layout.addStretch()
         
-        settings_group.setLayout(settings_layout)
-        main_layout.addWidget(settings_group)
+        settings_group.setLayout(settings_inner_layout)
+        settings_layout.addWidget(settings_group)
+        settings_scroll.setWidget(settings_container)
+        
+        main_layout.addWidget(settings_scroll, 1)  # Give equal weight to settings
         
         content.addLayout(main_layout)
 
-        if not hasattr(self, 'preview'):
-            self.preview = self._create_preview()
-        
         # Load initial images
         self.load_images_from_dir('examples')
         
@@ -253,22 +301,61 @@ class CustomTestPage(BasePage):
         self.update_preview()
         
     def on_scale_type_changed(self, index):
-        """Handle switching between relative and absolute scaling."""
-        is_relative = index == 0
-        self.relative_scale_widget.setVisible(is_relative)
-        self.absolute_scale_widget.setVisible(not is_relative)
+        """Handle scale type selector change."""
+        if index == 0:  # Relative (factor)
+            # Show scale factor, hide width mm
+            for widget in self.scale_factor_row:
+                if isinstance(widget, QLayout):
+                    for i in range(widget.count()):
+                        item = widget.itemAt(i).widget()
+                        if item:
+                            item.setVisible(True)
+                else:
+                    widget.setVisible(True)
+                
+            for widget in self.width_mm_row:
+                if isinstance(widget, QLayout):
+                    for i in range(widget.count()):
+                        item = widget.itemAt(i).widget()
+                        if item:
+                            item.setVisible(False)
+                else:
+                    widget.setVisible(False)
+        else:  # Absolute (mm)
+            # Hide scale factor, show width mm
+            for widget in self.scale_factor_row:
+                if isinstance(widget, QLayout):
+                    for i in range(widget.count()):
+                        item = widget.itemAt(i).widget()
+                        if item:
+                            item.setVisible(False)
+                else:
+                    widget.setVisible(False)
+                
+            for widget in self.width_mm_row:
+                if isinstance(widget, QLayout):
+                    for i in range(widget.count()):
+                        item = widget.itemAt(i).widget()
+                        if item:
+                            item.setVisible(True)
+                else:
+                    widget.setVisible(True)
+        
+        # Update the preview with the new settings
         self.update_preview()
 
     def update_preview(self):
         """Update preview with current settings."""
-        transformations = {
-            'rotation': {
+        transformations = {}
+        
+        # Add rotation if the spin control exists
+        if hasattr(self, 'rotation_spin'):
+            transformations['rotation'] = {
                 'angle': self.rotation_spin.value()
             }
-        }
         
         # Add scale transformation based on selected type
-        if hasattr(self, 'scale_type_combo'):
+        if hasattr(self, 'scale_type_combo') and hasattr(self, 'scale_spin') and hasattr(self, 'width_mm_spin'):
             if self.scale_type_combo.currentIndex() == 0:
                 # Relative scaling
                 transformations['scale'] = {
@@ -279,19 +366,23 @@ class CustomTestPage(BasePage):
                 transformations['scale'] = {
                     'width_mm': self.width_mm_spin.value()
                 }
-        else:
+        elif hasattr(self, 'scale_spin'):
             # Fallback to original behavior
             transformations['scale'] = {
                 'factor': self.scale_spin.value()
             }
         
-        if self.mirror_check.isChecked():
+        # Add mirror if the checkbox exists
+        if hasattr(self, 'mirror_check') and self.mirror_check.isChecked():
             transformations['mirror'] = {'horizontal': True}
             
-        if self.center_check.isChecked():
+        # Add center if the checkbox exists
+        if hasattr(self, 'center_check') and self.center_check.isChecked():
             transformations['center'] = {'width': 800, 'height': 600}
-            
-        self.preview.update_preview(transformations)
+        
+        # Only update if we have a preview
+        if hasattr(self, 'preview') and self.preview:
+            self.preview.update_preview(transformations)
 
     def get_test_config(self):
         """Get test configuration from UI settings."""

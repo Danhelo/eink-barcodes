@@ -1,7 +1,8 @@
 # src/ui/pages/quick_page.py
 from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
-    QGroupBox, QSlider, QMessageBox, QDoubleSpinBox, QWidget
+    QGroupBox, QSlider, QMessageBox, QDoubleSpinBox, QWidget,
+    QScrollArea, QSplitter, QSizePolicy
 )
 from PyQt5.QtCore import Qt, pyqtSlot
 import logging
@@ -26,10 +27,13 @@ class QuickTestPage(BasePage):
     
     def _create_content(self):
         """Create quick test controls."""
+        # Make the layout compact
         content = QVBoxLayout()
+        content.setSpacing(8)
         
         # Barcode type selection
         type_group = QGroupBox("Barcode Type")
+        type_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)  # Don't expand vertically
         type_layout = QHBoxLayout()
         
         type_layout.addWidget(QLabel("Type:"))
@@ -44,82 +48,100 @@ class QuickTestPage(BasePage):
         
         # Transformations
         transform_group = QGroupBox("Transformations")
+        transform_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)  # Allow horizontal expansion
         transform_layout = QVBoxLayout()
         
-        # Rotation
+        # Rotation control
+        rotation_group = QGroupBox("Rotation")
+        rotation_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)  # Don't expand vertically
         rotation_layout = QHBoxLayout()
-        rotation_layout.addWidget(QLabel("Rotation:"))
+        
+        rotation_layout.addWidget(QLabel("Angle:"))
         self.rotation_slider = QSlider(Qt.Horizontal)
         self.rotation_slider.setRange(0, 360)
-        self.rotation_slider.setSingleStep(15)
-        self.rotation_slider.setTickInterval(90)
+        self.rotation_slider.setTickInterval(45)
         self.rotation_slider.setTickPosition(QSlider.TicksBelow)
         self.rotation_slider.setValue(0)
         self.rotation_slider.valueChanged.connect(self.on_settings_changed)
         rotation_layout.addWidget(self.rotation_slider)
         self.rotation_value = QLabel("0°")
+        self.rotation_value.setMinimumWidth(30)  # Ensure space for the text
         rotation_layout.addWidget(self.rotation_value)
-        transform_layout.addLayout(rotation_layout)
         
-        # Scale options
-        scale_group = QGroupBox("Scaling")
+        rotation_group.setLayout(rotation_layout)
+        transform_layout.addWidget(rotation_group)
+        
+        # Scale control with type selector
+        scale_group = QGroupBox("Scale")
+        scale_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)  # Don't expand vertically
         scale_layout = QVBoxLayout()
-
-        # Scale Type Selection
+        
+        # Scale type selection
         scale_type_layout = QHBoxLayout()
-        scale_type_layout.addWidget(QLabel("Scaling Type:"))
+        scale_type_layout.addWidget(QLabel("Scale Type:"))
         self.scale_type_combo = QComboBox()
-        self.scale_type_combo.addItems(["Relative (factor)", "Absolute (mm)"])
+        self.scale_type_combo.addItems(["Relative (%)", "Absolute (mm)"])
         self.scale_type_combo.currentIndexChanged.connect(self.on_scale_type_changed)
         scale_type_layout.addWidget(self.scale_type_combo)
         scale_layout.addLayout(scale_type_layout)
-
-        # Relative Scaling (Slider) - in a container widget
+        
+        # Relative Scaling (slider)
         self.relative_scale_widget = QWidget()
         relative_scale_layout = QHBoxLayout(self.relative_scale_widget)
         relative_scale_layout.setContentsMargins(0, 0, 0, 0)
-        relative_scale_layout.addWidget(QLabel("Scale:"))
+        
+        label = QLabel("Size:")
+        label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        label.setMinimumWidth(40)
+        relative_scale_layout.addWidget(label)
+        
         self.scale_slider = QSlider(Qt.Horizontal)
-        self.scale_slider.setRange(50, 200)  # 0.5x to 2.0x
-        self.scale_slider.setSingleStep(10)  # 0.1x steps
-        self.scale_slider.setTickInterval(50)
+        self.scale_slider.setRange(10, 200)  # 10% to 200%
+        self.scale_slider.setTickInterval(10)
         self.scale_slider.setTickPosition(QSlider.TicksBelow)
-        self.scale_slider.setValue(100)  # 1.0x
+        self.scale_slider.setValue(100)  # 100% default
         self.scale_slider.valueChanged.connect(self.on_settings_changed)
         relative_scale_layout.addWidget(self.scale_slider)
-        self.scale_value = QLabel("1.0x")
+        
+        self.scale_value = QLabel("100%")
+        self.scale_value.setMinimumWidth(50)  # Ensure space for the text
+        self.scale_value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         relative_scale_layout.addWidget(self.scale_value)
+        
         scale_layout.addWidget(self.relative_scale_widget)
 
-        # Absolute Scaling (mm input) - in a container widget
+        # Absolute Scaling (mm input)
         self.absolute_scale_widget = QWidget()
         absolute_scale_layout = QHBoxLayout(self.absolute_scale_widget)
         absolute_scale_layout.setContentsMargins(0, 0, 0, 0)
-        absolute_scale_layout.addWidget(QLabel("Width:"))
+        
+        label = QLabel("Width:")
+        label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        label.setMinimumWidth(40)
+        absolute_scale_layout.addWidget(label)
+        
         self.width_mm_spin = QDoubleSpinBox()
         self.width_mm_spin.setRange(5.0, 200.0)  # 5mm to 200mm
-        self.width_mm_spin.setSingleStep(1.0)
-        self.width_mm_spin.setDecimals(1)
         self.width_mm_spin.setValue(20.0)  # 20mm default
         self.width_mm_spin.setSuffix(" mm")
         self.width_mm_spin.valueChanged.connect(self.on_settings_changed)
         absolute_scale_layout.addWidget(self.width_mm_spin)
+        absolute_scale_layout.addStretch()  # Add stretch to right-align the spin box
         scale_layout.addWidget(self.absolute_scale_widget)
+
+        # Make sure to initially hide the absolute scale widget
+        self.absolute_scale_widget.setVisible(False)
 
         scale_group.setLayout(scale_layout)
         transform_layout.addWidget(scale_group)
         
-        # Important: Set the layout for the transform group
         transform_group.setLayout(transform_layout)
         content.addWidget(transform_group)
         
         # Initialize
         self.barcode_images = []
-        # Make sure preview attribute exists before loading images
-        if not hasattr(self, 'preview'):
-            self.preview = self._create_preview()
         
-        # Set initial scale UI state
+        # Set initial state and load images
         self.on_scale_type_changed(0)
         self.load_barcode_images()
         
@@ -138,16 +160,19 @@ class QuickTestPage(BasePage):
         
     def on_settings_changed(self):
         """Handle settings changes."""
-        # Update labels
-        rotation = self.rotation_slider.value()
-        self.rotation_value.setText(f"{rotation}°")
+        # Update rotation display
+        angle = self.rotation_slider.value()
+        self.rotation_value.setText(f"{angle}°")
         
+        # Update scale display for relative scaling
         if hasattr(self, 'scale_type_combo') and self.scale_type_combo.currentIndex() == 0:
-            # Only update the relative scale value label
-            scale = self.scale_slider.value() / 100.0
-            self.scale_value.setText(f"{scale:.1f}x")
+            scale = self.scale_slider.value()
+            self.scale_value.setText(f"{scale}%")
         
-        # Update preview
+        # Log changes to help with debugging
+        logger.debug(f"Settings changed: rotation={angle}°, scale={self.scale_slider.value()}%")
+        
+        # Update the preview
         self.update_preview()
         
     def load_barcode_images(self):
@@ -196,34 +221,37 @@ class QuickTestPage(BasePage):
             
     def update_preview(self):
         """Update preview with current settings."""
+        # Use exact same transformation structure as custom page
         transformations = {
-            'rotation': {
-                'angle': self.rotation_slider.value()
-            },
-            'center': {
-                'width': 800,
-                'height': 600
-            }
+            'rotation': {'angle': self.rotation_slider.value()}
         }
         
-        # Choose scaling type based on selection
+        # Use exact same scaling approach as custom page
         if hasattr(self, 'scale_type_combo'):
             if self.scale_type_combo.currentIndex() == 0:
-                # Relative scaling
+                # Relative scaling - use direct division like custom page
+                # Instead of slider's 10-200 range representing 10-200%
+                # We'll use the actual factor directly
                 transformations['scale'] = {
-                    'factor': self.scale_slider.value() / 100.0
+                    'factor': self.scale_slider.value() / 100.0  # Convert percentage to factor
                 }
             else:
-                # Absolute scaling (mm)
+                # Absolute scaling (mm) - this part is the same
                 transformations['scale'] = {
                     'width_mm': self.width_mm_spin.value()
                 }
         else:
-            # Fallback to original behavior
             transformations['scale'] = {
                 'factor': self.scale_slider.value() / 100.0
             }
         
+        # Always add center transformation like custom page
+        transformations['center'] = {'width': 800, 'height': 600}
+        
+        # Debug the transformations
+        logger.debug(f"Applying transformations: {transformations}")
+        
+        # Call preview update with complete transformation dict
         self.preview.update_preview(transformations)
         
     def get_test_config(self):
@@ -238,18 +266,17 @@ class QuickTestPage(BasePage):
         # Ensure barcode type formatting is consistent regardless of how it's stored in dropdown
         barcode_type = self.barcode_combo.currentText()
         
-        # Create transformations dict
+        # Create transformations dict using exact same structure as update_preview
         transformations = {
-            'rotation': {'angle': self.rotation_slider.value()},
-            'center': {'width': 800, 'height': 600}
+            'rotation': {'angle': self.rotation_slider.value()}
         }
         
-        # Add scale transformation based on selected type
+        # Match the exact same scaling approach
         if hasattr(self, 'scale_type_combo'):
             if self.scale_type_combo.currentIndex() == 0:
                 # Relative scaling
                 transformations['scale'] = {
-                    'factor': self.scale_slider.value() / 100.0
+                    'factor': self.scale_slider.value() / 100.0  # Convert percentage to factor
                 }
             else:
                 # Absolute scaling (mm)
@@ -261,6 +288,9 @@ class QuickTestPage(BasePage):
             transformations['scale'] = {
                 'factor': self.scale_slider.value() / 100.0
             }
+        
+        # Always include center transformation
+        transformations['center'] = {'width': 800, 'height': 600}
         
         return TestConfig(
             barcode_type=barcode_type,
