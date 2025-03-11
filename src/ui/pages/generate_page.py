@@ -4,15 +4,16 @@ def _create_preview(self):
         Returns:
             PreviewWidget: Preview widget instance
         """
+        # Call parent's preview creation method
         preview = super()._create_preview()
-        # We need to manually set the transform pipeline for generate_page
-        if hasattr(self.controller, '_transform_pipeline'):
-            preview.set_transform_pipeline(self.controller._transform_pipeline)
+        # We might not need this anymore since it's in BasePage now
+        # if hasattr(self.controller, '_transform_pipeline'):
+        #     preview.set_transform_pipeline(self.controller._transform_pipeline)
         return preview# src/ui/pages/generate_page.py
 from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QSpinBox,
     QGroupBox, QCheckBox, QLineEdit, QTabWidget, QPushButton,
-    QMessageBox, QFileDialog, QGridLayout, QWidget
+    QMessageBox, QFileDialog, QGridLayout, QWidget, QScrollArea, QSizePolicy, QFrame
 )
 from PyQt5.QtCore import Qt, pyqtSlot
 import logging
@@ -61,6 +62,15 @@ class BarcodeGeneratePage(BasePage):
         
         content.addWidget(self.tab_widget)
         
+        # Create a scrollable area for advanced options
+        advanced_scroll = QScrollArea()
+        advanced_scroll.setWidgetResizable(True)
+        advanced_scroll.setFrameShape(QFrame.NoFrame)
+        advanced_scroll.setMaximumHeight(200)  # Limit max height
+        
+        advanced_container = QWidget()
+        advanced_container_layout = QVBoxLayout(advanced_container)
+        
         # Advanced options
         advanced_group = QGroupBox("Advanced Options")
         advanced_layout = QGridLayout()
@@ -73,7 +83,10 @@ class BarcodeGeneratePage(BasePage):
         advanced_layout.addWidget(self.dpi_spin, 0, 1)
         
         advanced_group.setLayout(advanced_layout)
-        content.addWidget(advanced_group)
+        advanced_container_layout.addWidget(advanced_group)
+        advanced_scroll.setWidget(advanced_container)
+        
+        content.addWidget(advanced_scroll)
         
         # Output directory selection
         dir_group = QGroupBox("Output Location")

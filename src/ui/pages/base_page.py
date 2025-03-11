@@ -2,7 +2,7 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QLabel, QMessageBox, 
-    QApplication
+    QApplication, QSplitter, QScrollArea, QFrame
 )
 from PyQt5.QtCore import Qt, pyqtSlot
 import logging
@@ -24,7 +24,6 @@ class BasePage(QWidget):
     - State change handling
     - Test execution infrastructure
     """
-    
     # Title displayed at the top of the page
     PAGE_TITLE = "Test Page"
     
@@ -38,6 +37,7 @@ class BasePage(QWidget):
         super().__init__(parent)
         self.main_window = parent
         self.controller = controller
+        self.preview = None  # Initialize to None, will be created in _setup_ui
         
         # Register for state updates
         if self.controller:
@@ -48,23 +48,52 @@ class BasePage(QWidget):
         
     def _setup_ui(self):
         """Set up the base UI components."""
+        # Main layout
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
         
         # Title
         title = QLabel(self.PAGE_TITLE)
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size: 18pt; font-weight: bold; margin: 10px;")
+        title.setStyleSheet("font-size: 18pt; font-weight: bold; margin-bottom: 10px;")
         layout.addWidget(title)
         
-        # Content area - override in subclasses
-        content = self._create_content()
-        layout.addLayout(content)
-        
-        # Preview
+        # Create preview first so it can be referenced in content creation
         self.preview = self._create_preview()
-        layout.addWidget(self.preview, 1)  # Give preview stretch
         
-        # Controls
+        # Create a splitter for content and preview
+        self.splitter = QSplitter(Qt.Vertical)
+        self.splitter.setChildrenCollapsible(False)  # Don't allow sections to collapse completely
+        self.splitter.setHandleWidth(8)  # Make the handle even easier to grab
+        
+        # Create scrollable content area (controls)
+        content_scroll = QScrollArea()
+        content_scroll.setWidgetResizable(True)  # Important for dynamic resizing
+        content_scroll.setFrameShape(QFrame.NoFrame)  # Remove border
+        
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(5, 5, 5, 5)  # Smaller margins
+        
+        # Get content from subclass
+        content = self._create_content()
+        content_layout.addLayout(content)
+        
+        # Set content widget as the scroll area's widget
+        content_scroll.setWidget(content_widget)
+        
+        # Add to splitter
+        self.splitter.addWidget(content_scroll)
+        self.splitter.addWidget(self.preview)
+        
+        # Set initial sizes - give more space to preview
+        self.splitter.setSizes([2, 3])  # Proportional sizes
+        
+        # Add splitter to main layout
+        layout.addWidget(self.splitter, 1)
+        
+        # Controls at bottom
         controls = self._create_controls()
         layout.addLayout(controls)
         
@@ -72,6 +101,9 @@ class BasePage(QWidget):
         self.progress = self._create_progress_bar()
         self.progress.setVisible(False)
         layout.addWidget(self.progress)
+        
+        # Let the user save splitter positions
+        self.splitter.splitterMoved.connect(self._splitter_moved)
         
     def _create_content(self):
         """Create the main content area.
@@ -91,7 +123,8 @@ class BasePage(QWidget):
             PreviewWidget: Preview widget instance
         """
         preview = PreviewWidget(self)
-        if hasattr(self.controller, '_transform_pipeline'):
+        # Set transform pipeline if available
+        if self.controller and hasattr(self.controller, '_transform_pipeline'):
             preview.set_transform_pipeline(self.controller._transform_pipeline)
         return preview
         
@@ -276,3 +309,9 @@ class BasePage(QWidget):
             
         if self.controller:
             self.controller.unregister_observer(self.on_state_change)
+
+    def _splitter_moved(self, pos, index):
+        """Handle splitter movement to remember positions."""
+        # In a real app, you might save this to settings
+        # For now, we'll just log it
+        logger.debug(f"Splitter position changed: {self.splitter.sizes()}")

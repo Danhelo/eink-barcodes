@@ -2,7 +2,7 @@
 from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QPushButton,
     QGroupBox, QSpinBox, QDoubleSpinBox, QCheckBox, QFileDialog,
-    QMessageBox, QListWidgetItem, QComboBox, QWidget
+    QMessageBox, QListWidgetItem, QComboBox, QWidget, QScrollArea, QFrame
 )
 from PyQt5.QtCore import Qt, pyqtSlot
 import logging
@@ -40,6 +40,7 @@ class CustomTestPage(BasePage):
         self.image_list = QListWidget()
         self.image_list.setSelectionMode(QListWidget.ExtendedSelection)
         self.image_list.itemSelectionChanged.connect(self.on_selection_changed)
+        self.image_list.setMinimumHeight(150)  # Ensure a reasonable minimum height
         image_layout.addWidget(self.image_list)
         
         # Image controls
@@ -55,11 +56,18 @@ class CustomTestPage(BasePage):
         
         image_layout.addLayout(image_buttons)
         image_group.setLayout(image_layout)
-        main_layout.addWidget(image_group)
+        main_layout.addWidget(image_group, 1)  # Give weight of 1 to the image section
         
-        # Right column: Test settings
+        # Right column: Test settings (in a scroll area to handle more complex controls)
+        settings_scroll = QScrollArea()
+        settings_scroll.setWidgetResizable(True)
+        settings_scroll.setFrameShape(QFrame.NoFrame)
+        
+        settings_container = QWidget()
+        settings_layout = QVBoxLayout(settings_container)
+        
         settings_group = QGroupBox("Test Settings")
-        settings_layout = QVBoxLayout()
+        settings_inner_layout = QVBoxLayout()
         
         # Transformation controls
         transforms_group = QGroupBox("Transformations")
@@ -133,7 +141,7 @@ class CustomTestPage(BasePage):
         transforms_layout.addWidget(self.center_check)
         
         transforms_group.setLayout(transforms_layout)
-        settings_layout.addWidget(transforms_group)
+        settings_inner_layout.addWidget(transforms_group)
         
         # Test execution controls
         execution_group = QGroupBox("Execution")
@@ -161,19 +169,19 @@ class CustomTestPage(BasePage):
         execution_layout.addLayout(repeat_layout)
         
         execution_group.setLayout(execution_layout)
-        settings_layout.addWidget(execution_group)
+        settings_inner_layout.addWidget(execution_group)
         
         # Fill remaining space
-        settings_layout.addStretch()
+        settings_inner_layout.addStretch()
         
-        settings_group.setLayout(settings_layout)
-        main_layout.addWidget(settings_group)
+        settings_group.setLayout(settings_inner_layout)
+        settings_layout.addWidget(settings_group)
+        settings_scroll.setWidget(settings_container)
+        
+        main_layout.addWidget(settings_scroll, 1)  # Give equal weight to settings
         
         content.addLayout(main_layout)
 
-        if not hasattr(self, 'preview'):
-            self.preview = self._create_preview()
-        
         # Load initial images
         self.load_images_from_dir('examples')
         
