@@ -7,21 +7,72 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
 # Create virtual environment if it doesn't exist
-# CHANGED: Added --system-site-packages flag to access system PyQt5
 if [ ! -d "venv" ]; then
-    echo "Creating virtual environment with system packages..."
-    python3 -m venv --system-site-packages venv
+    echo "Creating virtual environment..."
+    python3 -m venv venv
 fi
 
 # Activate virtual environment
 source venv/bin/activate
 
+# Check if AWS CLI is installed
+if ! command -v aws &> /dev/null; then
+    echo "AWS CLI not found. Installing AWS CLI..."
+    # Detect architecture
+    ARCH=$(uname -m)
+    if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
+        AWS_ZIP_URL="https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip"
+    else
+        AWS_ZIP_URL="https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+    fi
+    
+    curl "$AWS_ZIP_URL" -o "awscliv2.zip"
+    unzip awscliv2.zip
+    sudo ./aws/install
+    
+    # Clean up
+    rm -rf aws awscliv2.zip
+    
+    echo "AWS CLI installed successfully."
+    
+    # Run AWS configure for credentials setup
+    echo "Setting up AWS credentials..."
+    aws configure
+else
+    echo "AWS CLI is already installed."
+    
+    # Check if AWS credentials are configured
+    if [ ! -f ~/.aws/credentials ]; then
+        echo "AWS credentials not found. Running aws configure..."
+        aws configure
+    else
+        echo "AWS credentials already configured."
+    fi
+fi
+
+# Check and install IT8951 package for Raspberry Pi if the folder exists and not already installed
+if [ -d "IT8951" ] && [ ! -f ".it8951_installed" ]; then
+    echo "Installing IT8951 Raspberry Pi dependencies..."
+    pushd IT8951 > /dev/null
+    pip install ./[rpi] --break-system-packages
+    if [ $? -eq 0 ]; then
+        echo "IT8951 installation successful."
+        touch ../.it8951_installed
+    else
+        echo "Error: IT8951 installation failed."
+        exit 1
+    fi
+    popd > /dev/null
+elif [ -d "IT8951" ] && [ -f ".it8951_installed" ]; then
+    echo "IT8951 already installed. Skipping installation."
+else
+    echo "Notice: IT8951 folder not found. Skipping IT8951 installation."
+fi
+
 # Install requirements if needed
 if [ ! -f ".requirements_installed" ]; then
     echo "Installing requirements..."
-    # ADDED: Skip trying to reinstall PyQt5 via pip
-    grep -v "PyQt" requirements.txt > requirements_filtered.txt
-    pip install -r requirements_filtered.txt
+    pip install -r requirements.txt --break-system-packages
     touch .requirements_installed
 fi
 
@@ -71,13 +122,6 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
-
-# ADDED: Debug information
-echo "Debug info:"
-which python
-python -c "import sys; print(sys.path)"
-echo "Attempting to import PyQt5..."
-python -c "import PyQt5; print('PyQt5 found at:', PyQt5.__file__)"
 
 # Run the application
 if [ "$GUI_MODE" = true ]; then
