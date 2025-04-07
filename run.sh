@@ -105,7 +105,28 @@ fi
 # Parse command line arguments
 GUI_MODE=true
 VIRTUAL_MODE=false
+COMMAND=""
 
+# Display help function
+show_help() {
+    cat <<EOF
+Usage: ./run.sh [OPTIONS] [COMMAND] [COMMAND_OPTIONS]
+
+OPTIONS:
+  --cli           Run in CLI mode (default: GUI mode)
+  --virtual       Use virtual display instead of hardware
+  --help          Show this help message
+
+CLI COMMANDS:
+  quick-test      Run a quick test with simplified controls
+  custom-test     Run a custom test with advanced options
+  generate        Generate barcodes using AWS API
+
+Run './run.sh --cli COMMAND --help' for specific command options.
+EOF
+}
+
+# Process options
 while [[ $# -gt 0 ]]; do
     case $1 in
         --cli)
@@ -116,8 +137,26 @@ while [[ $# -gt 0 ]]; do
             VIRTUAL_MODE=true
             shift
             ;;
+        --help)
+            show_help
+            exit 0
+            ;;
+        quick-test|custom-test|generate)
+            COMMAND=$1
+            shift
+            break
+            ;;
+        -*)
+            echo "Unknown option: $1"
+            show_help
+            exit 1
+            ;;
         *)
-            # Pass remaining arguments to the application
+            # First non-option argument might be a command
+            if [ -z "$COMMAND" ] && [[ "$GUI_MODE" == "false" ]]; then
+                COMMAND=$1
+                shift
+            fi
             break
             ;;
     esac
@@ -125,6 +164,7 @@ done
 
 # Run the application
 if [ "$GUI_MODE" = true ]; then
+    # GUI mode
     echo "Starting E-ink Barcode Testing GUI..."
     if [ "$VIRTUAL_MODE" = true ]; then
         python scripts/run_app.py --virtual "$@"
@@ -132,10 +172,19 @@ if [ "$GUI_MODE" = true ]; then
         python scripts/run_app.py "$@"
     fi
 else
+    # CLI mode
     echo "Starting E-ink Barcode Testing CLI..."
+    
+    # If no command is specified, show help
+    if [ -z "$COMMAND" ]; then
+        python scripts/run_cli.py --help
+        exit 1
+    fi
+    
+    # Run the specified command
     if [ "$VIRTUAL_MODE" = true ]; then
-        python scripts/run_cli.py --virtual "$@"
+        python scripts/run_cli.py --virtual "$COMMAND" "$@"
     else
-        python scripts/run_cli.py "$@"
+        python scripts/run_cli.py "$COMMAND" "$@"
     fi
 fi

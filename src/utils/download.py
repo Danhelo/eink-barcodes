@@ -9,6 +9,7 @@ import logging
 import os
 from typing import Tuple, List
 import time
+from src.utils.reorganize_barcodes import reorganize_barcode_directories
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,10 @@ def download_and_unzip_s3_file(s3_url: str, extract_to: str = '.') -> Tuple[bool
                     extracted_files.append(relative_path)
         
         logger.info(f"Successfully extracted {len(extracted_files)} barcode images to {extract_to}")
+        
+        # Reorganize the newly downloaded barcode directories
+        reorganize_barcode_directories(extract_to)
+        
         return True, f"Successfully downloaded and extracted {len(extracted_files)} new barcode images."
         
     except requests.RequestException as e:
